@@ -22,7 +22,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-1.3',
+  version: 'PP-1.4',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75, SCROLL: 42,
   endpoint: 'https://script.google.com/macros/s/AKfycbzRPIcB805fQv0X2EKGOGoE0JdrMudX7-HEzIzF9UJhyEdXejciDMcgw_TlgoGMNreUQg/exec',
@@ -61,8 +61,8 @@ function makeSchedule() {
   const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
   const zones = [
     { from: 3, to: 25, types: ['fountain', 'confetti', 'fountain', 'spotlight', 'fountain', 'confetti', 'fountain'] },
-    { from: 25, to: 50, types: ['chandelier', 'rain', 'spotlight', 'chandelier', 'fountain', 'rain', 'confetti', 'chandelier', 'rain'] },
-    { from: 50, to: 73, types: ['waltz', 'chandelier', 'dash', 'confetti', 'rain', 'waltz', 'spotlight', 'dash', 'chandelier', 'waltz'] },
+    { from: 28, to: 50, types: ['chandelier', 'rain', 'spotlight', 'chandelier', 'fountain', 'rain', 'confetti', 'chandelier', 'rain'] },
+    { from: 53, to: 73, types: ['waltz', 'chandelier', 'dash', 'confetti', 'rain', 'waltz', 'spotlight', 'dash', 'chandelier', 'waltz'] },
   ];
   for (const z of zones) {
     let t = z.from, i = 0;
@@ -74,8 +74,8 @@ function makeSchedule() {
 // 적 등장 (시간 기준): 갈수록 강해짐
 const WAVES = [
   { t: 2, type: 'servant', n: 3 }, { t: 9, type: 'servant', n: 3 }, { t: 16, type: 'servant', n: 4 },
-  { t: 26, type: 'doll', n: 2 }, { t: 33, type: 'servant', n: 3 }, { t: 38, type: 'doll', n: 2 }, { t: 44, type: 'doll', n: 2 },
-  { t: 50, type: 'boss', n: 1 }, { t: 58, type: 'doll', n: 2 },
+  { t: 27.5, type: 'doll', n: 2 }, { t: 33, type: 'servant', n: 3 }, { t: 38, type: 'doll', n: 2 }, { t: 44, type: 'doll', n: 2 },
+  { t: 52, type: 'boss', n: 1 }, { t: 58, type: 'doll', n: 2 },
 ];
 const ENEMY = {
   servant: { hp: 90, tex: 'servant', y: -30, label: '하인 가면' },
@@ -83,10 +83,24 @@ const ENEMY = {
   boss: { hp: 2600, tex: 'boss', y: -160, label: '마스케라' },
 };
 // 미션 (시간 기준, 두 라운드 동일)
+// 구역: 구역 안에서는 화면이 천천히 흐르고, 경계 시간에 다음 구역으로 빠르게 이동
+const ZONES = [
+  { t0: 0, t1: 25, x0: 0, x1: 380, name: '1구역 정원 테라스' },
+  { t0: 26.5, t1: 50, x0: 1400, x1: 1780, name: '2구역 무도회장' },
+  { t0: 51.5, t1: 75, x0: 2700, x1: 3140, name: '3구역 무대' },
+];
+function camX(t) {
+  for (let i = 0; i < ZONES.length; i++) {
+    const z = ZONES[i];
+    if (t < z.t0) { const p = ZONES[i - 1], k = (t - p.t1) / (z.t0 - p.t1), e = k * k * (3 - 2 * k); return p.x1 + (z.x0 - p.x1) * e; }
+    if (t <= z.t1) return z.x0 + (z.x1 - z.x0) * (t - z.t0) / (z.t1 - z.t0);
+  }
+  return ZONES[ZONES.length - 1].x1;
+}
 const MISSIONS = [
   { id: 'm1', from: 2, to: 25, text: '하인 가면 6개 깨기', goal: 6 },
   { id: 'm2', from: 30, to: 42, text: '12초 동안 위험 공격에 한 번도 맞지 않기' },
-  { id: 'm3', from: 50, to: 75, text: '마스케라 체력 절반 깎기' },
+  { id: 'm3', from: 52, to: 75, text: '마스케라 체력 절반 깎기' },
 ];
 
 // ---------- 텍스처 ----------
@@ -492,7 +506,7 @@ class RoundScene extends Phaser.Scene {
   create() {
     const { W, H, GROUND, WORLD } = CFG;
     this.t = 0; this.done = false; this.freeze = 0;
-    this.stats = { hitsDanger: 0, hitsBy: { fountain: 0, chandelier: 0, rain: 0, waltz: 0, dash: 0 }, shieldBlocks: 0, damage: 0, kills: 0, downs: 0, missions: {} };
+    this.stats = { hitsDanger: 0, hitsBy: { fountain: 0, chandelier: 0, rain: 0, waltz: 0, dash: 0, servant: 0, doll: 0 }, shieldBlocks: 0, damage: 0, kills: 0, downs: 0, missions: {} };
     this.schedule = makeSchedule(); this.next = 0; this.hazards = [];
     this.waveIdx = 0; this.enemies = []; this.boss = null;
     this.missionIdx = -1; this.mission = null; this.servantKills = 0;
@@ -543,9 +557,10 @@ class RoundScene extends Phaser.Scene {
     this.mPanel.add([mg, this.mTitle, this.mProg]);
     this.mDots = MISSIONS.map((m, i) => ui(this.add.text(W / 2 - 40 + i * 40, 60, '○', { fontFamily: FONT, fontSize: 16, color: '#6a3fb5', fontStyle: 'bold' }).setOrigin(0.5, 0)));
     // 보스 체력
-    this.bossBarBg = ui(this.add.rectangle(W / 2 - 160, 96, 320, 12, 0xd9cff7).setOrigin(0, 0.5)).setVisible(false);
-    this.bossBar = ui(this.add.rectangle(W / 2 - 160, 96, 320, 12, 0x6a3fb5).setOrigin(0, 0.5)).setVisible(false);
-    this.bossName = ui(this.add.text(W / 2, 104, '마스케라', { fontFamily: FONT, fontSize: 13, color: '#ffffff', stroke: '#2a2350', strokeThickness: 3 }).setOrigin(0.5, 0)).setVisible(false);
+    this.bossBarBg = ui(this.add.rectangle(W / 2 - 230, 104, 460, 20, 0x2a2350, 0.85).setOrigin(0, 0.5)).setVisible(false);
+    this.bossBarLag = ui(this.add.rectangle(W / 2 - 228, 104, 456, 14, 0xffffff).setOrigin(0, 0.5)).setVisible(false);
+    this.bossBar = ui(this.add.rectangle(W / 2 - 228, 104, 456, 14, 0xd94aa0).setOrigin(0, 0.5)).setVisible(false);
+    this.bossName = ui(this.add.text(W / 2, 104, '마스케라  100%', { fontFamily: FONT, fontSize: 13, fontStyle: 'bold', color: '#ffffff', stroke: '#2a2350', strokeThickness: 3 }).setOrigin(0.5)).setVisible(false);
     if (LOG.debug) ui(this.add.text(8, H - 20, `debug: ${this.mode}안`, { fontFamily: FONT, fontSize: 12, color: '#666' }));
 
     // ---- 시작 전: 두 안 모두 똑같이 "이게 나예요" 안내 ----
@@ -610,8 +625,8 @@ class RoundScene extends Phaser.Scene {
       const x = this.cam.scrollX + CFG.W + 40 + i * 90;
       const sp = this.add.image(x, GROUND + def.y, def.tex).setDepth(this.D.enemy);
       if (w.type !== 'boss') sp.setScale(w.type === 'doll' ? 1.15 : 1.2);
-      const e = { type: w.type, sp, hp: def.hp, max: def.hp, bob: Math.random() * 6, stop: 380 + i * 90 + (w.type === 'boss' ? 120 : 0), kb: 0 };
-      if (w.type === 'boss') { this.boss = e; this.bossBarBg.setVisible(true); this.bossBar.setVisible(true); this.bossName.setVisible(true); this.banner('보스 등장!', '#ffffff', 0x6a3fb5); }
+      const e = { type: w.type, sp, hp: def.hp, max: def.hp, bob: Math.random() * 6, stop: 380 + i * 90 + (w.type === 'boss' ? 120 : 0), kb: 0, atkT: (w.type === 'servant' ? 2.2 : 1.8) + i * 0.9 };
+      if (w.type === 'boss') { this.boss = e; e.cracks = this.add.graphics().setDepth(this.D.enemy + 1); e.crackLv = 0; [this.bossBarBg, this.bossBarLag, this.bossBar, this.bossName].forEach(o => o.setVisible(true)); this.banner('보스 등장!', '#ffffff', 0x6a3fb5); }
       else { e.barBg = this.add.rectangle(x, sp.y - 46, 42, 6, 0x2a2350, 0.5).setDepth(this.D.enemy + 1); e.bar = this.add.rectangle(x - 21, sp.y - 46, 42, 6, 0xff6a9a).setOrigin(0, 0.5).setDepth(this.D.enemy + 1); }
       this.enemies.push(e);
     }
@@ -628,10 +643,17 @@ class RoundScene extends Phaser.Scene {
       big ? SFX.big() : SFX.hit(this.hero.combo);
       if (big) this.cam.shake(90, 0.004);
     }
-    if (e.type === 'boss') this.bossBar.width = 320 * Math.max(0, e.hp) / e.max;
+    if (e.type === 'boss') {
+      const r = Math.max(0, e.hp) / e.max;
+      this.bossBar.width = 456 * r; this.bossName.setText(`마스케라  ${Math.ceil(r * 100)}%`);
+      this.tweens.killTweensOf(this.bossBarLag); this.tweens.add({ targets: this.bossBarLag, width: 456 * r, delay: 250, duration: 300 });
+      if (byMe) { this.tweens.add({ targets: e.sp, angle: { from: (big ? 8 : 4) * (Math.random() < 0.5 ? -1 : 1), to: 0 }, scale: { from: big ? 1.08 : 1.04, to: 1 }, duration: 220 }); }
+      const lv = r < 0.33 ? 2 : r < 0.66 ? 1 : 0;
+      if (lv !== e.crackLv) { e.crackLv = lv; if (lv > 0) { this.popWorld(e.sp.x, e.sp.y - 100, lv === 1 ? '가면에 금이 갔다!' : '가면이 깨지기 직전!', '#ffe9a8'); this.cam.shake(150, 0.006); } }
+    }
     else if (e.bar) e.bar.width = 42 * Math.max(0, e.hp) / e.max;
     if (e.hp <= 0) {
-      if (e.type === 'boss') { e.hp = e.max; this.bossBar.width = 320; this.stats.bossBreaks = (this.stats.bossBreaks || 0) + 1; this.popWorld(e.sp.x, e.sp.y - 120, '가면 교체!'); return; }
+      if (e.type === 'boss') { e.hp = e.max; this.bossBar.width = 456; this.bossBarLag.width = 456; e.crackLv = 0; this.bossName.setText('마스케라  100%'); this.stats.bossBreaks = (this.stats.bossBreaks || 0) + 1; this.popWorld(e.sp.x, e.sp.y - 120, '가면 교체!'); return; }
       e.dead = true; this.stats.kills++; SFX.kill();
       if (e.type === 'servant') {
         this.servantKills++;
@@ -793,6 +815,15 @@ class RoundScene extends Phaser.Scene {
       const startX = h.dir > 0 ? h.x0 : h.x1;
       const tw = this.add.image(startX, GROUND - 35, 'waltz').setTint(this.B ? CFG.DANGER : 0xffffff).setScale(1.4).setDepth(this.D.danger);
       this.tweens.add({ targets: tw, x: h.dir > 0 ? h.x1 : h.x0, angle: 720, duration: 600, onComplete: () => tw.destroy() });
+    } else if (h.type === 'servant') {
+      h.active = 0.45;
+      const m = this.add.image(h.from, CFG.GROUND - 26, 'servant').setScale(0.6).setTint(this.B ? CFG.DANGER : 0xffffff).setDepth(this.D.danger);
+      this.tweens.add({ targets: m, x: h.dir > 0 ? h.x1 : h.x0, angle: 720 * h.dir, duration: 420, onComplete: () => m.destroy() });
+    } else if (h.type === 'doll') {
+      h.active = 0.25;
+      if (h.src && h.src.sp && h.src.sp.active) this.tweens.add({ targets: h.src.sp, x: h.src.sp.x + h.dir * 40, duration: 90, yoyo: true });
+      const sp = this.add.rectangle(h.dir > 0 ? h.x0 : h.x1, CFG.GROUND - 45, 20, 8, this.B ? CFG.DANGER : 0xe8b84a).setOrigin(h.dir > 0 ? 0 : 1, 0.5).setDepth(this.D.danger);
+      this.tweens.add({ targets: sp, width: h.x1 - h.x0, alpha: 0, duration: 200, onComplete: () => sp.destroy() });
     } else if (h.type === 'dash') {
       h.active = 0.4;
       const sp = this.boss ? this.boss.sp : null;
@@ -806,8 +837,30 @@ class RoundScene extends Phaser.Scene {
     if (h.type === 'rain') return h.cols.some(cx => Math.abs(me.x - cx) < 58);
     if (h.type === 'waltz') return me.x > h.x0 && me.x < h.x1 && me.y > GROUND - 70;
     if (h.type === 'dash') return me.y > GROUND - 76;
+    if (h.type === 'servant') return me.x > h.x0 && me.x < h.x1 && me.y > GROUND - 66;
+    if (h.type === 'doll') return me.x > h.x0 && me.x < h.x1;
     return false;
   }
+  // 적 공격: 하인 = 가면 부메랑(낮게 날아옴, 점프로 피함) / 태엽 기사 = 창 찌르기(앞쪽 범위, 거리를 벌려 피함)
+  enemyAttack(e) {
+    const { GROUND } = CFG, dir = this.me.x < e.sp.x ? -1 : 1, D = this.D.danger;
+    if (e.type === 'servant') {
+      const len = 520, cx = e.sp.x + dir * len / 2;
+      const h = { type: 'servant', t: 0.9, dir, x0: Math.min(e.sp.x, e.sp.x + dir * len), x1: Math.max(e.sp.x, e.sp.x + dir * len), from: e.sp.x, src: e };
+      h.g = this.teleStyle(this.add.rectangle(cx, GROUND - 26, len, 30).setDepth(D));
+      h.bang = this.teleMark(e.sp.x, e.sp.y - 60, '!');
+      this.hazards.push(h);
+      this.tweens.add({ targets: e.sp, angle: { from: -10 * dir, to: 0 }, duration: 300 });
+    } else {
+      const w = 230, cx = e.sp.x + dir * (w / 2 - 10);
+      const h = { type: 'doll', t: 1.0, x0: Math.min(cx - w / 2, cx + w / 2), x1: Math.max(cx - w / 2, cx + w / 2), src: e, dir };
+      h.g = this.teleStyle(this.add.rectangle(cx, GROUND - 45, w, 90).setDepth(D));
+      h.bang = this.teleMark(e.sp.x, e.sp.y - 72, '!');
+      this.hazards.push(h);
+      this.tweens.add({ targets: e.sp, x: e.sp.x - dir * 14, duration: 500 });
+    }
+  }
+
   takeHit(kind) {
     if (this.hero.invuln > 0 || this.hero.dashT > 0 || this.downT > 0) return;
     if (this.shield > 0) { this.shield = 0; this.shieldFx.setVisible(false); this.stats.shieldBlocks++; this.hero.invuln = 0.6; this.popWorld(this.me.x, this.me.y - 70, '보호막!', '#ffe9a8'); return; }
@@ -869,8 +922,18 @@ class RoundScene extends Phaser.Scene {
     this.spinIcon.setText(this.hero.spinCd > 0 ? `회전 베기(C) ${Math.ceil(this.hero.spinCd)}초` : '회전 베기(C) 준비!');
     if (left <= 0) { if (this.mission && this.mission.result == null) this.endMission(this.mission, this.missionOk(this.mission)); return this.finish(); }
 
-    this.cam.scrollX = Math.min(this.t * CFG.SCROLL, WORLD - W);
+    this.cam.scrollX = camX(this.t);
     const left0 = this.cam.scrollX;
+    // 구역 이동: 남은 적은 퇴장, 배너 안내 (두 라운드 동일한 시간)
+    const zi = ZONES.findIndex(z => this.t >= z.t0 && this.t <= z.t1);
+    const moving = zi < 0;
+    if (moving && !this.moving) {
+      this.moving = true; const nz = ZONES.find(z => z.t0 > this.t);
+      if (nz) this.banner('다음 구역으로!', '#ffffff', 0x1fb3a5, nz.name);
+      for (const e of this.enemies) if (e.type !== 'boss') { e.dead = true; this.tweens.add({ targets: e.sp, x: e.sp.x + 400, alpha: 0, duration: 600, onComplete: () => e.sp.destroy() }); if (e.bar) { e.bar.destroy(); e.barBg.destroy(); } }
+      for (const h of this.hazards) if (h.type === 'servant' || h.type === 'doll') { h.dead = true; (Array.isArray(h.g) ? h.g : [h.g]).forEach(g => g.destroy()); if (h.bang) h.bang.destroy(); }
+    }
+    if (!moving) this.moving = false;
     while (this.next < this.schedule.length && this.schedule[this.next].t <= this.t) this.spawn(this.schedule[this.next++]);
     while (this.waveIdx < WAVES.length && WAVES[this.waveIdx].t <= this.t) this.spawnWave(WAVES[this.waveIdx++]);
     this.updateMission();
@@ -884,9 +947,18 @@ class RoundScene extends Phaser.Scene {
       const tx = left0 + e.stop + (e.type === 'boss' ? 0 : Math.sin(this.t * 1.5 + e.bob) * 30);
       e.sp.x += (tx - e.sp.x) * Math.min(1, dt * 1.5);
       e.bob += dt;
-      if (e.type === 'boss') e.sp.y = GROUND - 165 + Math.sin(e.bob * 2.5) * 8;
+      if (e.type === 'boss') {
+        e.sp.y = GROUND - 140 + Math.sin(e.bob * 2.5) * 8;
+        const c = e.cracks; c.clear();
+        if (e.crackLv > 0) {
+          c.lineStyle(4, 0x1d1830, 1); const bx = e.sp.x - 90, by = e.sp.y - 93;
+          c.beginPath(); c.moveTo(bx + 70, by + 50); c.lineTo(bx + 82, by + 72); c.lineTo(bx + 74, by + 90); c.lineTo(bx + 90, by + 112); c.strokePath();
+          if (e.crackLv > 1) { c.beginPath(); c.moveTo(bx + 120, by + 48); c.lineTo(bx + 108, by + 70); c.lineTo(bx + 122, by + 92); c.lineTo(bx + 112, by + 110); c.moveTo(bx + 30, by + 80); c.lineTo(bx + 50, by + 86); c.strokePath(); }
+        }
+      }
       else { e.sp.y = GROUND + ENEMY[e.type].y - Math.abs(Math.sin(e.bob * 5)) * 5; const by = e.sp.y - (e.type === 'doll' ? 56 : 44); e.barBg.setPosition(e.sp.x, by); e.bar.setPosition(e.sp.x - 21, by); }
       e.sp.flipX = e.sp.x > this.me.x;
+      if (e.type !== 'boss' && !this.moving) { e.atkT -= dt; if (e.atkT <= 0) { this.enemyAttack(e); e.atkT = e.type === 'servant' ? 3.4 : 2.8; } }
     }
     this.enemies = this.enemies.filter(e => !e.dead);
 
