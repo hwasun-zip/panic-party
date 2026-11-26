@@ -22,9 +22,9 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-1.4',
+  version: 'PP-1.5',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
-  ROUND_SEC: 75, SCROLL: 42,
+  ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycbzRPIcB805fQv0X2EKGOGoE0JdrMudX7-HEzIzF9UJhyEdXejciDMcgw_TlgoGMNreUQg/exec',
   DANGER: 0xff2d55,
 };
@@ -53,55 +53,39 @@ const LOG = {
   },
 };
 
-// ---------- 패턴과 적 일정 (두 라운드가 완전히 같음, 시간 기준) ----------
+// ---------- 구역별 일정 (구역이 시작된 뒤의 시간 기준, 두 라운드가 완전히 같음) ----------
 // 위험: fountain(분수 물기둥) / chandelier(샹들리에 낙하) / rain(카드 비) / waltz(왈츠 회오리, 점프) / dash(리본 돌진)
 // 무해: confetti(색종이 폭죽) / spotlight(조명 쇼)
-function makeSchedule() {
-  const s = []; let seed = 11;
-  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-  const zones = [
-    { from: 3, to: 25, types: ['fountain', 'confetti', 'fountain', 'spotlight', 'fountain', 'confetti', 'fountain'] },
-    { from: 28, to: 50, types: ['chandelier', 'rain', 'spotlight', 'chandelier', 'fountain', 'rain', 'confetti', 'chandelier', 'rain'] },
-    { from: 53, to: 73, types: ['waltz', 'chandelier', 'dash', 'confetti', 'rain', 'waltz', 'spotlight', 'dash', 'chandelier', 'waltz'] },
-  ];
-  for (const z of zones) {
-    let t = z.from, i = 0;
-    const gap = (z.to - z.from) / z.types.length;
-    for (const type of z.types) { s.push({ t: t + rnd() * 0.4, type, off: Math.round(rnd() * 120 - 60), r: rnd() }); t += gap; i++; }
-  }
-  return s;
-}
-// 적 등장 (시간 기준): 갈수록 강해짐
-const WAVES = [
-  { t: 2, type: 'servant', n: 3 }, { t: 9, type: 'servant', n: 3 }, { t: 16, type: 'servant', n: 4 },
-  { t: 27.5, type: 'doll', n: 2 }, { t: 33, type: 'servant', n: 3 }, { t: 38, type: 'doll', n: 2 }, { t: 44, type: 'doll', n: 2 },
-  { t: 52, type: 'boss', n: 1 }, { t: 58, type: 'doll', n: 2 },
+// 미션을 빨리 끝내면 남은 패턴은 건너뛰고 다음 구역으로 감 → 비교 지표는 "만난 위험 공격 대비 맞은 비율"
+const ZONES = [
+  { name: '1구역 정원 테라스', x0: 0, drift: 380, max: 25,
+    patterns: ['fountain', 'confetti', 'fountain', 'spotlight', 'fountain', 'confetti', 'fountain'], pStart: 3, pGap: 3.1,
+    waves: [{ t: 0.5, type: 'servant', n: 3 }, { t: 6, type: 'servant', n: 3 }, { t: 12, type: 'servant', n: 4 }, { t: 18, type: 'servant', n: 3 }] },
+  { name: '2구역 무도회장', x0: 1400, drift: 300, max: 18,
+    patterns: ['chandelier', 'rain', 'spotlight', 'chandelier', 'fountain', 'rain', 'confetti', 'chandelier'], pStart: 1.5, pGap: 2.0,
+    waves: [{ t: 0.5, type: 'doll', n: 2 }, { t: 6, type: 'servant', n: 3 }, { t: 11, type: 'doll', n: 2 }] },
+  { name: '3구역 무대', x0: 2700, drift: 440, max: 25,
+    patterns: ['waltz', 'chandelier', 'dash', 'confetti', 'rain', 'waltz', 'spotlight', 'dash', 'chandelier', 'waltz'], pStart: 2.5, pGap: 2.25,
+    waves: [{ t: 0.5, type: 'boss', n: 1 }, { t: 8, type: 'doll', n: 2 }, { t: 16, type: 'servant', n: 3 }] },
 ];
+const DANGER_TYPES = ['fountain', 'chandelier', 'rain', 'waltz', 'dash', 'servant', 'doll'];
+function makeZoneSchedule(zi) {
+  const z = ZONES[zi]; let seed = 11 + zi * 7;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  return z.patterns.map((type, i) => ({ t: z.pStart + i * z.pGap + rnd() * 0.3, type, off: Math.round(rnd() * 120 - 60), r: rnd() }));
+}
 const ENEMY = {
   servant: { hp: 90, tex: 'servant', y: -30, label: '하인 가면' },
   doll: { hp: 320, tex: 'doll', y: -42, label: '태엽 기사' },
   boss: { hp: 2600, tex: 'boss', y: -160, label: '마스케라' },
 };
-// 미션 (시간 기준, 두 라운드 동일)
-// 구역: 구역 안에서는 화면이 천천히 흐르고, 경계 시간에 다음 구역으로 빠르게 이동
-const ZONES = [
-  { t0: 0, t1: 25, x0: 0, x1: 380, name: '1구역 정원 테라스' },
-  { t0: 26.5, t1: 50, x0: 1400, x1: 1780, name: '2구역 무도회장' },
-  { t0: 51.5, t1: 75, x0: 2700, x1: 3140, name: '3구역 무대' },
-];
-function camX(t) {
-  for (let i = 0; i < ZONES.length; i++) {
-    const z = ZONES[i];
-    if (t < z.t0) { const p = ZONES[i - 1], k = (t - p.t1) / (z.t0 - p.t1), e = k * k * (3 - 2 * k); return p.x1 + (z.x0 - p.x1) * e; }
-    if (t <= z.t1) return z.x0 + (z.x1 - z.x0) * (t - z.t0) / (z.t1 - z.t0);
-  }
-  return ZONES[ZONES.length - 1].x1;
-}
+// 미션: 구역마다 하나. m2는 구역 시작 3초 뒤부터 12초 동안 버티기
 const MISSIONS = [
-  { id: 'm1', from: 2, to: 25, text: '하인 가면 6개 깨기', goal: 6 },
-  { id: 'm2', from: 30, to: 42, text: '12초 동안 위험 공격에 한 번도 맞지 않기' },
-  { id: 'm3', from: 52, to: 75, text: '마스케라 체력 절반 깎기' },
+  { id: 'm1', zone: 0, text: '하인 가면 6개 깨기', goal: 6 },
+  { id: 'm2', zone: 1, text: '12초 동안 위험 공격에 한 번도 맞지 않기', from: 3, to: 15 },
+  { id: 'm3', zone: 2, text: '마스케라 체력 절반 깎기' },
 ];
+const TRANS_SEC = 1.6;
 
 // ---------- 텍스처 ----------
 function makeTextures(scene) {
@@ -360,7 +344,7 @@ class TitleScene extends Phaser.Scene {
       this.tweens.add({ targets: sp, y: 280, duration: 380 + i * 40, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
       if (k === 'me') this.add.text(x, 220, '나', { fontFamily: FONT, fontSize: 16, fontStyle: 'bold', color: '#ffffff', backgroundColor: '#e0a21c', padding: { x: 8, y: 3 } }).setOrigin(0.5);
     });
-    this.add.text(W / 2, 370, '파티원 5명과 함께 가면무도회를 지나 거대 가면 "마스케라"에게 가세요.\n75초 라운드 2번 + 짧은 질문, 약 4분이면 끝나요.', { fontFamily: FONT, fontSize: 17, color: '#2a2350', align: 'center', lineSpacing: 6 }).setOrigin(0.5);
+    this.add.text(W / 2, 370, '파티원 5명과 함께 가면무도회를 지나 거대 가면 "마스케라"에게 가세요.\n라운드 2번 + 짧은 질문, 약 4분이면 끝나요. 미션을 깨면 바로 다음 구역으로!', { fontFamily: FONT, fontSize: 17, color: '#2a2350', align: 'center', lineSpacing: 6 }).setOrigin(0.5);
     const btn = this.add.container(W / 2, 460);
     const bgb = this.add.graphics(); bgb.fillStyle(0x6a3fb5, 1); bgb.fillRoundedRect(-130, -28, 260, 56, 28);
     btn.add(bgb); btn.add(this.add.text(0, 0, '파티 입장  ▶', { fontFamily: FONT, fontSize: 22, fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5));
@@ -507,10 +491,10 @@ class RoundScene extends Phaser.Scene {
     const { W, H, GROUND, WORLD } = CFG;
     this.t = 0; this.done = false; this.freeze = 0;
     this.stats = { hitsDanger: 0, hitsBy: { fountain: 0, chandelier: 0, rain: 0, waltz: 0, dash: 0, servant: 0, doll: 0 }, shieldBlocks: 0, damage: 0, kills: 0, downs: 0, missions: {} };
-    this.schedule = makeSchedule(); this.next = 0; this.hazards = [];
-    this.waveIdx = 0; this.enemies = []; this.boss = null;
-    this.missionIdx = -1; this.mission = null; this.servantKills = 0;
-    this.hp = 100; this.downT = 0;
+    this.hazards = []; this.enemies = []; this.boss = null; this.servantKills = 0;
+    this.hp = 100; this.downT = 0; this.dangerSeen = 0;
+    this.zone = -1; this.zt = 0; this.transT = 0; this.ending = 0; this.stats.zoneTimes = [];
+    this.mission = null;
 
     // 레이어 규칙: B안 = 위험 예고 > 내 캐릭터 > 적 > 아군 이펙트 / A안 = 아군 이펙트가 맨 위
     this.D = this.B
@@ -843,6 +827,7 @@ class RoundScene extends Phaser.Scene {
   }
   // 적 공격: 하인 = 가면 부메랑(낮게 날아옴, 점프로 피함) / 태엽 기사 = 창 찌르기(앞쪽 범위, 거리를 벌려 피함)
   enemyAttack(e) {
+    this.dangerSeen++;
     const { GROUND } = CFG, dir = this.me.x < e.sp.x ? -1 : 1, D = this.D.danger;
     if (e.type === 'servant') {
       const len = 520, cx = e.sp.x + dir * len / 2;
@@ -865,7 +850,7 @@ class RoundScene extends Phaser.Scene {
     if (this.hero.invuln > 0 || this.hero.dashT > 0 || this.downT > 0) return;
     if (this.shield > 0) { this.shield = 0; this.shieldFx.setVisible(false); this.stats.shieldBlocks++; this.hero.invuln = 0.6; this.popWorld(this.me.x, this.me.y - 70, '보호막!', '#ffe9a8'); return; }
     this.stats.hitsDanger++; this.stats.hitsBy[kind]++;
-    if (this.mission && this.mission.id === 'm2' && !this.mission.failed) { this.mission.failed = true; this.endMission(this.mission, false); }
+    if (this.mission && this.mission.id === 'm2' && this.mission.active && this.mission.result == null && !this.mission.failed) { this.mission.failed = true; this.endMission(this.mission, false); }
     this.hp -= 20; this.hpUI.set(this.hp);
     this.tweens.add({ targets: this.hpUI.c, x: 22, duration: 40, yoyo: true, repeat: 3, onComplete: () => this.hpUI.c.setX(16) });
     SFX.hurt(); this.cam.flash(150, 255, 60, 90); this.cam.shake(140, 0.006);
@@ -877,30 +862,43 @@ class RoundScene extends Phaser.Scene {
     }
   }
 
-  // ---------- 미션 ----------
+  // ---------- 구역과 미션 ----------
+  startZone(zi) {
+    this.zone = zi; this.zt = 0; this.transT = 0;
+    this.schedule = makeZoneSchedule(zi); this.next = 0; this.waveIdx = 0;
+    const m = MISSIONS.find(x => x.zone === zi);
+    this.mission = { ...m, result: null, failed: false, active: m.id !== 'm2' };
+    this.banner(`미션 ${zi + 1}`, '#ffffff', 0x6a3fb5, m.text);
+    this.mDots[zi].setText('●').setColor('#ffc94a');
+  }
+  endZone() {   // 다음 구역으로 이동 시작
+    this.stats.zoneTimes.push(Math.round(this.zt * 10) / 10);
+    if (this.zone >= ZONES.length - 1) { this.ending = 2; return; }
+    this.transT = TRANS_SEC; this.camFrom = this.cam.scrollX;
+    this.banner('다음 구역으로!', '#ffffff', 0x1fb3a5, ZONES[this.zone + 1].name);
+    for (const e of this.enemies) if (e.type !== 'boss') { e.dead = true; this.tweens.add({ targets: e.sp, x: e.sp.x + 400, alpha: 0, duration: 600, onComplete: () => e.sp.destroy() }); if (e.bar) { e.bar.destroy(); e.barBg.destroy(); } }
+    for (const h of this.hazards) { h.dead = true; (Array.isArray(h.g) ? h.g : [h.g]).forEach(g => g.destroy()); if (h.bang) h.bang.destroy(); if (h.obj) h.obj.destroy(); }
+    this.zoneDone = true;
+  }
   updateMission() {
-    const t = this.t;
-    const cur = MISSIONS.findIndex(m => t >= m.from && t < m.to);
-    if (cur !== this.missionIdx) {
-      if (this.mission && this.mission.result == null) this.endMission(this.mission, this.missionOk(this.mission));
-      this.missionIdx = cur; this.mission = cur >= 0 ? { ...MISSIONS[cur], result: null, failed: false } : null;
-      if (this.mission) { this.banner(`미션 ${cur + 1}`, '#ffffff', 0x6a3fb5, this.mission.text); this.mDots[cur].setText('●').setColor('#ffc94a'); }
+    const m = this.mission; if (!m) return;
+    const zt = this.zt;
+    if (m.id === 'm2') {
+      if (!m.active && zt >= m.from && m.result == null) { m.active = true; this.popTextCenter('지금부터 버티기 시작!'); }
+      if (m.active && m.result == null && zt >= m.to) this.endMission(m, !m.failed);
     }
-    const m = this.mission;
-    if (!m) { this.mTitle.setText('다음 미션 준비 중'); this.mProg.setText(''); return; }
-    if (m.id === 'm3' && m.startHp == null && this.boss) m.startHp = this.boss.hp;
-    this.mTitle.setText(`미션 ${this.missionIdx + 1}. ${m.text}`);
+    this.mTitle.setText(`미션 ${this.zone + 1}. ${m.text}`);
     let prog = '';
-    if (m.result === true) prog = '✔ 성공!';
+    if (m.result === true) prog = '✔ 성공! 곧 다음 구역으로';
     else if (m.result === false) prog = '✖ 실패';
-    else if (m.id === 'm1') prog = `남은 하인 가면 ${Math.max(0, m.goal - this.servantKills)}개  (${Math.min(this.servantKills, m.goal)}/${m.goal})`;
-    else if (m.id === 'm2') prog = `버티기 ${Math.max(0, Math.ceil(m.to - t))}초 남음`;
-    else if (m.id === 'm3') prog = this.boss ? `보스 체력 깎은 정도 ${Math.round(this.m3Progress() * 100)}% / 100%` : '보스를 기다리는 중';
+    else if (m.id === 'm1') prog = `남은 하인 가면 ${Math.max(0, m.goal - this.servantKills)}개  (${Math.min(this.servantKills, m.goal)}/${m.goal})   제한 ${Math.max(0, Math.ceil(ZONES[0].max - zt))}초`;
+    else if (m.id === 'm2') prog = m.active ? `버티기 ${Math.max(0, Math.ceil(m.to - zt))}초 남음` : `${Math.max(0, Math.ceil(m.from - zt))}초 뒤 시작`;
+    else if (m.id === 'm3') prog = this.boss ? `보스 체력 깎은 정도 ${Math.round(this.m3Progress() * 100)}% / 100%   제한 ${Math.max(0, Math.ceil(ZONES[2].max - zt))}초` : '보스 등장 중';
     this.mProg.setText(prog);
-    if (m.result == null && m.id !== 'm2' && this.missionOk(m)) this.endMission(m, true);
+    if (m.result == null && m.id === 'm1' && this.servantKills >= m.goal) this.endMission(m, true);
+    if (m.result == null && m.id === 'm3' && this.m3Progress() >= 1) this.endMission(m, true);
   }
   m3Progress() { const b = this.boss; if (!b) return 0; const dealt = (this.stats.bossBreaks || 0) * b.max + (b.max - b.hp); return Math.min(1, dealt / (b.max * 0.5)); }
-  missionOk(m) { if (m.id === 'm1') return this.servantKills >= m.goal; if (m.id === 'm2') return !m.failed; if (m.id === 'm3') return this.m3Progress() >= 1; return false; }
   endMission(m, ok) {
     if (m.result != null) return;
     m.result = ok; this.stats.missions[m.id] = ok ? 1 : 0;
@@ -908,6 +906,13 @@ class RoundScene extends Phaser.Scene {
     this.mDots[i].setText(ok ? '✔' : '✖').setColor(ok ? '#1fa36b' : '#d94a6a');
     if (ok) { SFX.clear(); this.banner('MISSION CLEAR!', '#ffe14f', 0x6a3fb5, m.text); }
     else { SFX.fail(); this.banner('미션 실패', '#ffffff', 0x8a7fa8, m.text); }
+    if (m.id === 'm1' && ok) this.zoneEndAt = this.zt + 1.4;     // 미션 1 성공 → 잠깐 축하 후 바로 이동
+    if (m.id === 'm2') this.zoneEndAt = Math.max(this.zt + 1.4, m.to);
+    if (m.id === 'm3' && ok) this.zoneEndAt = this.zt + 1.8;     // 마지막 미션 성공 → 라운드 종료
+  }
+  popTextCenter(msg) {
+    const m = this.add.text(CFG.W / 2, 150, msg, { fontFamily: FONT, fontSize: 22, fontStyle: 'bold', color: '#ffffff', stroke: '#6a3fb5', strokeThickness: 5 }).setOrigin(0.5).setScrollFactor(0).setDepth(this.D.ui);
+    this.tweens.add({ targets: m, alpha: 0, y: 130, delay: 600, duration: 600, onComplete: () => m.destroy() });
   }
 
   update(time, ms) {
@@ -916,27 +921,33 @@ class RoundScene extends Phaser.Scene {
     if (!this.ready || this.done) return;
     if (this.freeze > 0) { this.freeze -= dt; return; }   // 타격 순간 아주 잠깐 멈춤 (손맛)
     this.t += dt;
-    const left = CFG.ROUND_SEC - this.t;
-    this.timerText.setText(`남은 시간 ${Math.max(0, Math.ceil(left))}초`);
-    this.hitText.setText(`맞은 횟수 ${this.stats.hitsDanger}  ·  준 피해 ${this.stats.damage}`.replace('  ·  ', '   '));
+    if (this.zone < 0) this.startZone(0);
+    const Z = ZONES[this.zone];
+    this.hitText.setText(`맞은 횟수 ${this.stats.hitsDanger}   준 피해 ${this.stats.damage}`);
     this.spinIcon.setText(this.hero.spinCd > 0 ? `회전 베기(C) ${Math.ceil(this.hero.spinCd)}초` : '회전 베기(C) 준비!');
-    if (left <= 0) { if (this.mission && this.mission.result == null) this.endMission(this.mission, this.missionOk(this.mission)); return this.finish(); }
+    this.timerText.setText(`${Z.name}`);
 
-    this.cam.scrollX = camX(this.t);
-    const left0 = this.cam.scrollX;
-    // 구역 이동: 남은 적은 퇴장, 배너 안내 (두 라운드 동일한 시간)
-    const zi = ZONES.findIndex(z => this.t >= z.t0 && this.t <= z.t1);
-    const moving = zi < 0;
-    if (moving && !this.moving) {
-      this.moving = true; const nz = ZONES.find(z => z.t0 > this.t);
-      if (nz) this.banner('다음 구역으로!', '#ffffff', 0x1fb3a5, nz.name);
-      for (const e of this.enemies) if (e.type !== 'boss') { e.dead = true; this.tweens.add({ targets: e.sp, x: e.sp.x + 400, alpha: 0, duration: 600, onComplete: () => e.sp.destroy() }); if (e.bar) { e.bar.destroy(); e.barBg.destroy(); } }
-      for (const h of this.hazards) if (h.type === 'servant' || h.type === 'doll') { h.dead = true; (Array.isArray(h.g) ? h.g : [h.g]).forEach(g => g.destroy()); if (h.bang) h.bang.destroy(); }
+    // 라운드 끝
+    if (this.ending > 0) { this.ending -= dt; if (this.ending <= 0) return this.finish(); }
+
+    if (this.transT > 0) {   // 다음 구역으로 이동 중
+      this.transT -= dt;
+      const nx = ZONES[this.zone + 1].x0, k = 1 - Math.max(0, this.transT) / TRANS_SEC, e = k * k * (3 - 2 * k);
+      this.cam.scrollX = this.camFrom + (nx - this.camFrom) * e;
+      if (this.transT <= 0) { this.zoneDone = false; this.zoneEndAt = null; this.startZone(this.zone + 1); }
+    } else if (!this.zoneDone && this.ending <= 0) {
+      this.zt += dt;
+      this.cam.scrollX = Z.x0 + Z.drift * Math.min(1, this.zt / Z.max);
+      while (this.next < this.schedule.length && this.schedule[this.next].t <= this.zt) { const p = this.schedule[this.next++]; if (DANGER_TYPES.includes(p.type)) this.dangerSeen++; this.spawn(p); }
+      while (this.waveIdx < Z.waves.length && Z.waves[this.waveIdx].t <= this.zt) this.spawnWave(Z.waves[this.waveIdx++]);
+      this.updateMission();
+      const timeUp = this.zt >= Z.max;
+      if (timeUp && this.mission.result == null) this.endMission(this.mission, this.mission.id === 'm2' ? !this.mission.failed : false);
+      if ((this.zoneEndAt != null && this.zt >= this.zoneEndAt) || (timeUp && this.zoneEndAt == null)) this.endZone();
+      else if (timeUp && this.zt >= this.zoneEndAt) this.endZone();
     }
-    if (!moving) this.moving = false;
-    while (this.next < this.schedule.length && this.schedule[this.next].t <= this.t) this.spawn(this.schedule[this.next++]);
-    while (this.waveIdx < WAVES.length && WAVES[this.waveIdx].t <= this.t) this.spawnWave(WAVES[this.waveIdx++]);
-    this.updateMission();
+    this.moving = this.transT > 0 || this.zoneDone;
+    const left0 = this.cam.scrollX;
 
     for (const e of this.enemies) {
       if (e.flash > 0) { e.flash -= dt; if (e.flash <= 0) e.sp.clearTint(); }
@@ -997,7 +1008,7 @@ class RoundScene extends Phaser.Scene {
 
   finish() {
     this.done = true;
-    const r = { round: this.index + 1, mode: this.mode, patterns: this.next, ...this.stats, attacks: this.hero.events.attacks, dashes: this.hero.events.dashes, spins: this.hero.events.spins };
+    const r = { round: this.index + 1, mode: this.mode, dangerSeen: this.dangerSeen, hitRate: this.dangerSeen ? Math.round(this.stats.hitsDanger / this.dangerSeen * 1000) / 10 : 0, roundSec: Math.round(this.t * 10) / 10, ...this.stats, attacks: this.hero.events.attacks, dashes: this.hero.events.dashes, spins: this.hero.events.spins };
     LOG.rounds.push(r);
     this.scene.start('Survey', { index: this.index, result: r });
   }
@@ -1010,7 +1021,7 @@ class SurveyScene extends Phaser.Scene {
   create() {
     const { W, H } = CFG;
     this.add.rectangle(W / 2, H / 2, W, H, 0x2a2350);
-    this.add.text(W / 2, 50, `라운드 ${this.index + 1} 끝!   맞은 횟수 ${this.result.hitsDanger}   준 피해 ${this.result.damage}   미션 성공 ${Object.values(this.result.missions).reduce((a, b) => a + b, 0)}/3`, { fontFamily: FONT, fontSize: 22, color: '#ffc94a' }).setOrigin(0.5);
+    this.add.text(W / 2, 50, `라운드 ${this.index + 1} 끝!   위험 공격 ${this.result.dangerSeen}번 중 ${this.result.hitsDanger}번 맞음   미션 성공 ${Object.values(this.result.missions).reduce((a, b) => a + b, 0)}/3`, { fontFamily: FONT, fontSize: 22, color: '#ffc94a' }).setOrigin(0.5);
     this.qs = [
       { q: 'Q1. 싸우는 동안 내 캐릭터가 어디 있는지 놓친 순간이 있었나요?', opts: ['1  없었다', '2  1~2번 있었다', '3  여러 번 있었다'], key: 'lostSelf' },
       { q: 'Q2. 피해야 하는 공격과 그냥 연출을 구분하기 쉬웠나요?', opts: ['1  매우 어려웠다', '2  어려웠다', '3  보통', '4  쉬웠다', '5  매우 쉬웠다'], key: 'clarity' },
@@ -1051,7 +1062,7 @@ class FinalScene extends Phaser.Scene {
     this.add.rectangle(W / 2, H / 2, W, H, 0x2a2350);
     const [r1, r2] = LOG.rounds;
     this.add.text(W / 2, 60, '마지막 질문', { fontFamily: FONT, fontSize: 30, color: '#ffc94a' }).setOrigin(0.5);
-    this.add.text(W / 2, 120, `라운드 1: ${r1.hitsDanger}번 맞음    라운드 2: ${r2.hitsDanger}번 맞음`, { fontFamily: FONT, fontSize: 22, color: '#ffffff' }).setOrigin(0.5);
+    this.add.text(W / 2, 120, `라운드 1: ${r1.dangerSeen}번 중 ${r1.hitsDanger}번 맞음    라운드 2: ${r2.dangerSeen}번 중 ${r2.hitsDanger}번 맞음`, { fontFamily: FONT, fontSize: 22, color: '#ffffff' }).setOrigin(0.5);
     this.add.text(W / 2, 190, 'Q3. 어느 라운드가 더 플레이하기 편했나요?', { fontFamily: FONT, fontSize: 22, color: '#ffffff' }).setOrigin(0.5);
     const pick = (n) => {
       if (this.picked) return; this.picked = true;
