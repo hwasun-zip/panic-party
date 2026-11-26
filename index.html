@@ -24,7 +24,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-2.5',
+  version: 'PP-2.6',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycby3ja5wDpWjQ40HdE1UE7VX6IZMUB3_ex9CVAidK79NR9KLm-HvedgIiQndZ8-KYGvuGg/exec',
@@ -64,11 +64,11 @@ const ZONES = [
     patterns: ['fountain', 'confetti', 'fountain', 'spotlight', 'fountain', 'fountain', 'confetti', 'fountain', 'fountain'], pStart: 2.5, pGap: 2.5,
     waves: [{ t: 0.5, type: 'servant', n: 3 }, { t: 5, type: 'servant', n: 3 }, { t: 10, type: 'servant', n: 4 }, { t: 15, type: 'servant', n: 3 }, { t: 20, type: 'servant', n: 3 }] },
   { name: '2구역 무도회장', x0: 1400, drift: 300, max: 18,
-    patterns: ['chandelier', 'rain', 'spotlight', 'chandelier', 'fountain', 'rain', 'confetti', 'chandelier', 'rain', 'fountain'], pStart: 1.2, pGap: 1.65,
-    waves: [{ t: 0.5, type: 'doll', n: 2 }, { t: 6, type: 'servant', n: 3 }, { t: 11, type: 'doll', n: 2 }] },
+    patterns: ['chandelier', 'rain', 'spotlight', 'chandelier', 'fountain', 'confetti', 'rain', 'chandelier'], pStart: 1.5, pGap: 2.2,
+    waves: [{ t: 0.5, type: 'doll', n: 2 }, { t: 7, type: 'servant', n: 2 }] },
   { name: '3구역 무대', x0: 2700, drift: 440, max: 25,
-    patterns: ['waltz', 'chandelier', 'dash', 'confetti', 'rain', 'waltz', 'spotlight', 'dash', 'chandelier', 'waltz', 'rain', 'dash', 'fountain'], pStart: 2.2, pGap: 1.75,
-    waves: [{ t: 0.5, type: 'boss', n: 1 }, { t: 8, type: 'doll', n: 2 }, { t: 16, type: 'servant', n: 3 }] },
+    patterns: ['waltz', 'chandelier', 'dash', 'confetti', 'rain', 'waltz', 'spotlight', 'chandelier', 'dash', 'fountain'], pStart: 2.2, pGap: 2.3,
+    waves: [{ t: 0.5, type: 'boss', n: 1 }, { t: 12, type: 'servant', n: 2 }] },
 ];
 const DANGER_TYPES = ['fountain', 'chandelier', 'rain', 'waltz', 'dash', 'servant', 'doll'];
 function makeZoneSchedule(zi) {
@@ -81,10 +81,10 @@ const ENEMY = {
   doll: { hp: 520, tex: 'doll', y: -42, label: '태엽 기사' },
   boss: { hp: Number(new URLSearchParams(location.search).get('bosshp')) || 1800, tex: 'boss', y: -160, label: '마스케라' },
 };
-// 미션: 구역마다 하나. m2는 구역 시작 3초 뒤부터 12초 동안 버티기
+// 미션: 구역마다 하나. m2는 구역 시작 3초 뒤부터 10초 동안 버티기
 const MISSIONS = [
   { id: 'm1', zone: 0, text: '하인 가면 8개 깨기', goal: 8 },
-  { id: 'm2', zone: 1, text: '12초 동안 위험 공격에 한 번도 맞지 않기', from: 3, to: 15 },
+  { id: 'm2', zone: 1, text: '10초 동안 위험 공격에 한 번도 맞지 않기', from: 3, to: 13 },
   { id: 'm3', zone: 2, text: '마스케라의 가면 깨뜨리기 (체력 0 만들기)' },
 ];
 const TRANS_SEC = 1.6;
