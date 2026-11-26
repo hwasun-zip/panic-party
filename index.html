@@ -24,7 +24,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-2.4',
+  version: 'PP-2.5',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycby3ja5wDpWjQ40HdE1UE7VX6IZMUB3_ex9CVAidK79NR9KLm-HvedgIiQndZ8-KYGvuGg/exec',
@@ -79,7 +79,7 @@ function makeZoneSchedule(zi) {
 const ENEMY = {
   servant: { hp: 150, tex: 'servant', y: -30, label: '하인 가면' },
   doll: { hp: 520, tex: 'doll', y: -42, label: '태엽 기사' },
-  boss: { hp: Number(new URLSearchParams(location.search).get('bosshp')) || 2400, tex: 'boss', y: -160, label: '마스케라' },
+  boss: { hp: Number(new URLSearchParams(location.search).get('bosshp')) || 1800, tex: 'boss', y: -160, label: '마스케라' },
 };
 // 미션: 구역마다 하나. m2는 구역 시작 3초 뒤부터 12초 동안 버티기
 const MISSIONS = [
@@ -1071,7 +1071,7 @@ class RoundScene extends Phaser.Scene {
       }
       else { e.sp.y = GROUND + ENEMY[e.type].y - Math.abs(Math.sin(e.bob * 5)) * 5; const by = e.sp.y - (e.type === 'doll' ? 56 : 44); e.barBg.setPosition(e.sp.x, by); e.bar.setPosition(e.sp.x - 21, by); }
       e.sp.flipX = e.sp.x > this.me.x;
-      if (e.type !== 'boss' && !this.moving) { e.atkT -= dt; if (e.atkT <= 0) { this.enemyAttack(e); e.atkT = e.type === 'servant' ? 2.4 : 2.0; } }
+      if (e.type !== 'boss' && !this.moving) { e.atkT -= dt; if (e.atkT <= 0) { this.enemyAttack(e); e.atkT = e.type === 'servant' ? 3.6 : 3.2; } }
     }
     this.enemies = this.enemies.filter(e => !e.dead);
 
