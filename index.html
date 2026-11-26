@@ -24,7 +24,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-2.7',
+  version: 'PP-2.8',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycby3ja5wDpWjQ40HdE1UE7VX6IZMUB3_ex9CVAidK79NR9KLm-HvedgIiQndZ8-KYGvuGg/exec',
@@ -61,16 +61,17 @@ const LOG = {
 // 미션을 빨리 끝내면 남은 패턴은 건너뛰고 다음 구역으로 감 → 비교 지표는 "만난 위험 공격 대비 맞은 비율"
 const ZONES = [
   { name: '1구역 정원 테라스', x0: 0, drift: 380, max: 25,
-    patterns: ['fountain', 'confetti', 'fountain', 'spotlight', 'fountain', 'fountain', 'confetti', 'fountain', 'fountain'], pStart: 2.5, pGap: 2.5,
+    patterns: ['fountain', 'confetti', 'fountain', 'spotlight', 'confetti', 'fountain', 'spotlight', 'fountain', 'confetti'], pStart: 2.5, pGap: 2.5,
     waves: [{ t: 0.5, type: 'servant', n: 3 }, { t: 5, type: 'servant', n: 3 }, { t: 10, type: 'servant', n: 4 }, { t: 15, type: 'servant', n: 3 }, { t: 20, type: 'servant', n: 3 }] },
   { name: '2구역 무도회장', x0: 1400, drift: 300, max: 18,
-    patterns: ['chandelier', 'rain', 'spotlight', 'chandelier', 'fountain', 'confetti', 'rain', 'chandelier'], pStart: 1.5, pGap: 2.2,
+    patterns: ['chandelier', 'confetti', 'rain', 'spotlight', 'chandelier', 'confetti', 'fountain', 'spotlight'], pStart: 1.5, pGap: 2.2,
     waves: [{ t: 0.5, type: 'doll', n: 2 }, { t: 7, type: 'servant', n: 2 }] },
   { name: '3구역 무대', x0: 2700, drift: 440, max: 32,
-    patterns: ['waltz', 'chandelier', 'dash', 'confetti', 'rain', 'waltz', 'spotlight', 'chandelier', 'dash', 'fountain'], pStart: 2.2, pGap: 2.3,
+    patterns: ['waltz', 'chandelier', 'groggy', 'dash', 'rain', 'groggy', 'waltz', 'confetti', 'chandelier', 'groggy', 'dash', 'groggy'], pStart: 2.2, pGap: 2.3,
     waves: [{ t: 0.5, type: 'boss', n: 1 }, { t: 12, type: 'servant', n: 2 }] },
 ];
 const DANGER_TYPES = ['fountain', 'chandelier', 'rain', 'waltz', 'dash', 'servant', 'doll'];
+const PATTERN_TYPES = ['fountain', 'chandelier', 'rain', 'waltz', 'dash'];   // 패턴이 떠 있는 동안 적은 공격을 미룸 (한 번에 하나)
 function makeZoneSchedule(zi) {
   const z = ZONES[zi]; let seed = 11 + zi * 7;
   const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
@@ -641,6 +642,7 @@ class RoundScene extends Phaser.Scene {
   nearestEnemy(x) { let best = null, d = 1e9; for (const e of this.enemies) { const dd = Math.abs(e.sp.x - x); if (dd < d) { d = dd; best = e; } } return best; }
   hurt(e, amount, byMe, big) {
     if (!e || e.dead) return;
+    if (e.groggy > 0) amount = Math.round(amount * 1.5);
     e.hp -= amount; e.sp.setTint(0xffffff); e.flash = 0.08;
     if (byMe) {
       this.stats.damage += amount;
@@ -778,6 +780,13 @@ class RoundScene extends Phaser.Scene {
       h.g = this.teleStyle(this.add.rectangle(mx, y, 1100, 50).setDepth(D));
       h.bang = this.teleMark(mx + 160, y - 50, '! 돌진');
       this.hazards.push(h);
+    } else if (p.type === 'groggy') {     // 보스 빈틈: 패턴 2~3개 뒤 비틀거림, 받는 피해 1.5배 (무해, 두 안 동일)
+      if (this.boss && !this.boss.dead) {
+        this.boss.groggy = 2.4;
+        this.popWorld(this.boss.sp.x, this.boss.sp.y - 130, '빈틈! 지금 공격!', '#ffe066');
+        this.tweens.add({ targets: this.boss.sp, angle: { from: -7, to: 7 }, duration: 160, yoyo: true, repeat: 6, onComplete: () => this.boss && this.boss.sp.setAngle(0) });
+      }
+      this.spawn({ ...p, type: 'confetti' });
     } else if (p.type === 'confetti') {   // 무해
       this.cam.shake(300, 0.005);
       const col = Phaser.Utils.Array.GetRandom(this.allyPalette), al = 0.9;
@@ -1071,6 +1080,7 @@ class RoundScene extends Phaser.Scene {
     for (const e of this.enemies) {
       if (e.flash > 0) { e.flash -= dt; if (e.flash <= 0) e.sp.clearTint(); }
       if (e.dead) continue;
+      if (e.groggy > 0) { e.groggy -= dt; if (e.flash <= 0) e.sp.setTint(e.groggy > 0 ? 0xfff2b0 : 0xffffff); if (e.groggy <= 0) e.sp.clearTint(); }
       const busy = e.type === 'boss' && this.hazards.some(h => h.type === 'dash' && h.active > 0);
       if (busy) continue;
       if (e.kb) { e.sp.x += e.kb; e.stop += e.kb; e.kb = 0; e.stop = Phaser.Math.Clamp(e.stop, 200, 900); }
@@ -1088,7 +1098,7 @@ class RoundScene extends Phaser.Scene {
       }
       else { e.sp.y = GROUND + ENEMY[e.type].y - Math.abs(Math.sin(e.bob * 5)) * 5; const by = e.sp.y - (e.type === 'doll' ? 56 : 44); e.barBg.setPosition(e.sp.x, by); e.bar.setPosition(e.sp.x - 21, by); }
       e.sp.flipX = e.sp.x > this.me.x;
-      if (e.type !== 'boss' && !this.moving) { e.atkT -= dt; if (e.atkT <= 0) { this.enemyAttack(e); e.atkT = e.type === 'servant' ? 3.6 : 3.2; } }
+      if (e.type !== 'boss' && !this.moving) { e.atkT -= dt; if (e.atkT <= 0 && this.hazards.some(h => PATTERN_TYPES.includes(h.type))) e.atkT = 0.6; if (e.atkT <= 0) { this.enemyAttack(e); e.atkT = e.type === 'servant' ? 3.6 : 3.2; } }
     }
     this.enemies = this.enemies.filter(e => !e.dead);
 
