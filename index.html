@@ -22,7 +22,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-1.6',
+  version: 'PP-1.7',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycbzRPIcB805fQv0X2EKGOGoE0JdrMudX7-HEzIzF9UJhyEdXejciDMcgw_TlgoGMNreUQg/exec',
@@ -75,9 +75,9 @@ function makeZoneSchedule(zi) {
   return z.patterns.map((type, i) => ({ t: z.pStart + i * z.pGap + rnd() * 0.3, type, off: Math.round(rnd() * 120 - 60), r: rnd() }));
 }
 const ENEMY = {
-  servant: { hp: 90, tex: 'servant', y: -30, label: '하인 가면' },
-  doll: { hp: 320, tex: 'doll', y: -42, label: '태엽 기사' },
-  boss: { hp: Number(new URLSearchParams(location.search).get('bosshp')) || 2000, tex: 'boss', y: -160, label: '마스케라' },
+  servant: { hp: 150, tex: 'servant', y: -30, label: '하인 가면' },
+  doll: { hp: 520, tex: 'doll', y: -42, label: '태엽 기사' },
+  boss: { hp: Number(new URLSearchParams(location.search).get('bosshp')) || 2400, tex: 'boss', y: -160, label: '마스케라' },
 };
 // 미션: 구역마다 하나. m2는 구역 시작 3초 뒤부터 12초 동안 버티기
 const MISSIONS = [
@@ -705,7 +705,7 @@ class RoundScene extends Phaser.Scene {
       this.tweens.add({ targets: b, x: bx, scaleX: 3, alpha: 0, duration: 500, onComplete: () => b.destroy() });
       if (this.shield <= 0 && Math.random() < 0.35) { this.shield = 4; this.shieldFx.setVisible(true); }   // 중요한 아군 이펙트: B안에서도 선명
     }
-    if (target && Math.abs(target.sp.x - a.sprite.x) < 520) this.hurt(target, target.type === 'boss' ? 4 : 14, false);
+    if (target && Math.abs(target.sp.x - a.sprite.x) < 520) this.hurt(target, target.type === 'boss' ? 2 : 3, false);
   }
 
   // ---------- 위험 패턴 ----------
@@ -1023,7 +1023,7 @@ class RoundScene extends Phaser.Scene {
       }
       else { e.sp.y = GROUND + ENEMY[e.type].y - Math.abs(Math.sin(e.bob * 5)) * 5; const by = e.sp.y - (e.type === 'doll' ? 56 : 44); e.barBg.setPosition(e.sp.x, by); e.bar.setPosition(e.sp.x - 21, by); }
       e.sp.flipX = e.sp.x > this.me.x;
-      if (e.type !== 'boss' && !this.moving) { e.atkT -= dt; if (e.atkT <= 0) { this.enemyAttack(e); e.atkT = e.type === 'servant' ? 2.8 : 2.3; } }
+      if (e.type !== 'boss' && !this.moving) { e.atkT -= dt; if (e.atkT <= 0) { this.enemyAttack(e); e.atkT = e.type === 'servant' ? 2.4 : 2.0; } }
     }
     this.enemies = this.enemies.filter(e => !e.dead);
 
