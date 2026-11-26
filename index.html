@@ -22,7 +22,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-1.5',
+  version: 'PP-1.6',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycbzRPIcB805fQv0X2EKGOGoE0JdrMudX7-HEzIzF9UJhyEdXejciDMcgw_TlgoGMNreUQg/exec',
@@ -59,13 +59,13 @@ const LOG = {
 // 미션을 빨리 끝내면 남은 패턴은 건너뛰고 다음 구역으로 감 → 비교 지표는 "만난 위험 공격 대비 맞은 비율"
 const ZONES = [
   { name: '1구역 정원 테라스', x0: 0, drift: 380, max: 25,
-    patterns: ['fountain', 'confetti', 'fountain', 'spotlight', 'fountain', 'confetti', 'fountain'], pStart: 3, pGap: 3.1,
-    waves: [{ t: 0.5, type: 'servant', n: 3 }, { t: 6, type: 'servant', n: 3 }, { t: 12, type: 'servant', n: 4 }, { t: 18, type: 'servant', n: 3 }] },
+    patterns: ['fountain', 'confetti', 'fountain', 'spotlight', 'fountain', 'fountain', 'confetti', 'fountain', 'fountain'], pStart: 2.5, pGap: 2.5,
+    waves: [{ t: 0.5, type: 'servant', n: 3 }, { t: 5, type: 'servant', n: 3 }, { t: 10, type: 'servant', n: 4 }, { t: 15, type: 'servant', n: 3 }, { t: 20, type: 'servant', n: 3 }] },
   { name: '2구역 무도회장', x0: 1400, drift: 300, max: 18,
-    patterns: ['chandelier', 'rain', 'spotlight', 'chandelier', 'fountain', 'rain', 'confetti', 'chandelier'], pStart: 1.5, pGap: 2.0,
+    patterns: ['chandelier', 'rain', 'spotlight', 'chandelier', 'fountain', 'rain', 'confetti', 'chandelier', 'rain', 'fountain'], pStart: 1.2, pGap: 1.65,
     waves: [{ t: 0.5, type: 'doll', n: 2 }, { t: 6, type: 'servant', n: 3 }, { t: 11, type: 'doll', n: 2 }] },
   { name: '3구역 무대', x0: 2700, drift: 440, max: 25,
-    patterns: ['waltz', 'chandelier', 'dash', 'confetti', 'rain', 'waltz', 'spotlight', 'dash', 'chandelier', 'waltz'], pStart: 2.5, pGap: 2.25,
+    patterns: ['waltz', 'chandelier', 'dash', 'confetti', 'rain', 'waltz', 'spotlight', 'dash', 'chandelier', 'waltz', 'rain', 'dash', 'fountain'], pStart: 2.2, pGap: 1.75,
     waves: [{ t: 0.5, type: 'boss', n: 1 }, { t: 8, type: 'doll', n: 2 }, { t: 16, type: 'servant', n: 3 }] },
 ];
 const DANGER_TYPES = ['fountain', 'chandelier', 'rain', 'waltz', 'dash', 'servant', 'doll'];
@@ -77,13 +77,13 @@ function makeZoneSchedule(zi) {
 const ENEMY = {
   servant: { hp: 90, tex: 'servant', y: -30, label: '하인 가면' },
   doll: { hp: 320, tex: 'doll', y: -42, label: '태엽 기사' },
-  boss: { hp: 2600, tex: 'boss', y: -160, label: '마스케라' },
+  boss: { hp: Number(new URLSearchParams(location.search).get('bosshp')) || 2000, tex: 'boss', y: -160, label: '마스케라' },
 };
 // 미션: 구역마다 하나. m2는 구역 시작 3초 뒤부터 12초 동안 버티기
 const MISSIONS = [
-  { id: 'm1', zone: 0, text: '하인 가면 6개 깨기', goal: 6 },
+  { id: 'm1', zone: 0, text: '하인 가면 8개 깨기', goal: 8 },
   { id: 'm2', zone: 1, text: '12초 동안 위험 공격에 한 번도 맞지 않기', from: 3, to: 15 },
-  { id: 'm3', zone: 2, text: '마스케라 체력 절반 깎기' },
+  { id: 'm3', zone: 2, text: '마스케라의 가면 깨뜨리기 (체력 0 만들기)' },
 ];
 const TRANS_SEC = 1.6;
 
@@ -637,7 +637,7 @@ class RoundScene extends Phaser.Scene {
     }
     else if (e.bar) e.bar.width = 42 * Math.max(0, e.hp) / e.max;
     if (e.hp <= 0) {
-      if (e.type === 'boss') { e.hp = e.max; this.bossBar.width = 456; this.bossBarLag.width = 456; e.crackLv = 0; this.bossName.setText('마스케라  100%'); this.stats.bossBreaks = (this.stats.bossBreaks || 0) + 1; this.popWorld(e.sp.x, e.sp.y - 120, '가면 교체!'); return; }
+      if (e.type === 'boss') { e.hp = 0; this.bossBar.width = 0; this.bossName.setText('마스케라  0%'); this.stats.bossBreaks = 1; this.updateMission(); return; this.stats.bossBreaks = (this.stats.bossBreaks || 0) + 1; this.popWorld(e.sp.x, e.sp.y - 120, '가면 교체!'); return; }
       e.dead = true; this.stats.kills++; SFX.kill();
       if (e.type === 'servant') {
         this.servantKills++;
@@ -705,7 +705,7 @@ class RoundScene extends Phaser.Scene {
       this.tweens.add({ targets: b, x: bx, scaleX: 3, alpha: 0, duration: 500, onComplete: () => b.destroy() });
       if (this.shield <= 0 && Math.random() < 0.35) { this.shield = 4; this.shieldFx.setVisible(true); }   // 중요한 아군 이펙트: B안에서도 선명
     }
-    if (target && Math.abs(target.sp.x - a.sprite.x) < 520) this.hurt(target, target.type === 'boss' ? 10 : 14, false);
+    if (target && Math.abs(target.sp.x - a.sprite.x) < 520) this.hurt(target, target.type === 'boss' ? 4 : 14, false);
   }
 
   // ---------- 위험 패턴 ----------
@@ -723,13 +723,13 @@ class RoundScene extends Phaser.Scene {
     const { GROUND } = CFG, mx = this.me.x, D = this.D.danger;
     if (p.type === 'fountain') {          // 분수 물기둥: 발밑 원에서 물기둥이 솟음 → 옆으로 피함
       const x = mx + p.off, r = 90;
-      const h = { type: 'fountain', x, r, t: 1.1 };
+      const h = { type: 'fountain', x, r, t: 0.95 };
       h.g = this.teleStyle(this.add.ellipse(x, GROUND, r * 2, 34).setDepth(D));
       h.bang = this.teleMark(x, GROUND - 70, '!');
       this.hazards.push(h);
     } else if (p.type === 'chandelier') { // 샹들리에 낙하: 위에서 떨어짐 → 표시된 자리를 벗어남
       const x = mx + p.off * 0.6, w = 150;
-      const h = { type: 'chandelier', x, w, t: 1.2 };
+      const h = { type: 'chandelier', x, w, t: 1.0 };
       h.g = this.teleStyle(this.add.rectangle(x, GROUND - 200, w, 400).setDepth(D));
       h.obj = this.add.image(x, 70, 'chandelier').setDepth(this.D.danger - 1);
       this.tweens.add({ targets: h.obj, angle: { from: -6, to: 6 }, duration: 120, yoyo: true, repeat: -1 });
@@ -737,20 +737,20 @@ class RoundScene extends Phaser.Scene {
       this.hazards.push(h);
     } else if (p.type === 'rain') {       // 카드 비: 4칸 중 1칸만 안전
       const safe = Math.floor(p.r * 4), w = 130, base = mx - 260;
-      const h = { type: 'rain', t: 1.3, cols: [] };
+      const h = { type: 'rain', t: 1.1, cols: [] };
       for (let i = 0; i < 4; i++) if (i !== safe) h.cols.push(base + i * w + w / 2);
       h.g = h.cols.map(cx => this.teleStyle(this.add.rectangle(cx, GROUND - 160, w - 14, 320).setDepth(D)));
       h.bang = this.teleMark(base + safe * w + w / 2, GROUND - 120, '안전', '#1fa36b');
       this.hazards.push(h);
     } else if (p.type === 'waltz') {      // 왈츠 회오리: 바닥을 쓸고 지나감 → 점프
       const y = GROUND - 26, dir = p.r < 0.5 ? 1 : -1;
-      const h = { type: 'waltz', y, t: 1.2, dir, x0: mx - 520, x1: mx + 520 };
+      const h = { type: 'waltz', y, t: 1.0, dir, x0: mx - 520, x1: mx + 520 };
       h.g = this.teleStyle(this.add.rectangle(mx, y, 1040, 40).setDepth(D));
       h.bang = this.teleMark(mx + 120, y - 50, '! 점프');
       this.hazards.push(h);
     } else if (p.type === 'dash') {       // 리본 돌진: 보스가 가로질러 돌진 → 점프나 대시
       const y = GROUND - 30;
-      const h = { type: 'dash', y, t: 1.3 };
+      const h = { type: 'dash', y, t: 1.1 };
       h.g = this.teleStyle(this.add.rectangle(mx, y, 1100, 50).setDepth(D));
       h.bang = this.teleMark(mx + 160, y - 50, '! 돌진');
       this.hazards.push(h);
@@ -831,14 +831,14 @@ class RoundScene extends Phaser.Scene {
     const { GROUND } = CFG, dir = this.me.x < e.sp.x ? -1 : 1, D = this.D.danger;
     if (e.type === 'servant') {
       const len = 520, cx = e.sp.x + dir * len / 2;
-      const h = { type: 'servant', t: 0.9, dir, x0: Math.min(e.sp.x, e.sp.x + dir * len), x1: Math.max(e.sp.x, e.sp.x + dir * len), from: e.sp.x, src: e };
+      const h = { type: 'servant', t: 0.8, dir, x0: Math.min(e.sp.x, e.sp.x + dir * len), x1: Math.max(e.sp.x, e.sp.x + dir * len), from: e.sp.x, src: e };
       h.g = this.teleStyle(this.add.rectangle(cx, GROUND - 26, len, 30).setDepth(D));
       h.bang = this.teleMark(e.sp.x, e.sp.y - 60, '!');
       this.hazards.push(h);
       this.tweens.add({ targets: e.sp, angle: { from: -10 * dir, to: 0 }, duration: 300 });
     } else {
       const w = 230, cx = e.sp.x + dir * (w / 2 - 10);
-      const h = { type: 'doll', t: 1.0, x0: Math.min(cx - w / 2, cx + w / 2), x1: Math.max(cx - w / 2, cx + w / 2), src: e, dir };
+      const h = { type: 'doll', t: 0.9, x0: Math.min(cx - w / 2, cx + w / 2), x1: Math.max(cx - w / 2, cx + w / 2), src: e, dir };
       h.g = this.teleStyle(this.add.rectangle(cx, GROUND - 45, w, 90).setDepth(D));
       h.bang = this.teleMark(e.sp.x, e.sp.y - 72, '!');
       this.hazards.push(h);
@@ -851,10 +851,10 @@ class RoundScene extends Phaser.Scene {
     if (this.shield > 0) { this.shield = 0; this.shieldFx.setVisible(false); this.stats.shieldBlocks++; this.hero.invuln = 0.6; this.popWorld(this.me.x, this.me.y - 70, '보호막!', '#ffe9a8'); return; }
     this.stats.hitsDanger++; this.stats.hitsBy[kind]++;
     if (this.mission && this.mission.id === 'm2' && this.mission.active && this.mission.result == null && !this.mission.failed) { this.mission.failed = true; this.endMission(this.mission, false); }
-    this.hp -= 20; this.hpUI.set(this.hp);
+    this.hp -= 25; this.hpUI.set(this.hp);
     this.tweens.add({ targets: this.hpUI.c, x: 22, duration: 40, yoyo: true, repeat: 3, onComplete: () => this.hpUI.c.setX(16) });
     SFX.hurt(); this.cam.flash(150, 255, 60, 90); this.cam.shake(140, 0.006);
-    this.popWorld(this.me.x, this.me.y - 60, '-20', '#ff6a7a');
+    this.popWorld(this.me.x, this.me.y - 60, '-25', '#ff6a7a');
     this.hero.invuln = 0.9; this.hero.vy = -260; this.hero.onGround = false;
     if (this.hp <= 0) {   // 다운: 2초 뒤 회복 (라운드는 계속)
       this.stats.downs++; this.downT = 2; this.me.setAngle(90);
@@ -873,7 +873,7 @@ class RoundScene extends Phaser.Scene {
   }
   endZone() {   // 다음 구역으로 이동 시작
     this.stats.zoneTimes.push(Math.round(this.zt * 10) / 10);
-    if (this.zone >= ZONES.length - 1) { this.ending = 2; return; }
+    if (this.zone >= ZONES.length - 1) { this.roundEnd(); return; }
     this.transT = TRANS_SEC; this.camFrom = this.cam.scrollX;
     this.banner('다음 구역으로!', '#ffffff', 0x1fb3a5, ZONES[this.zone + 1].name);
     for (const e of this.enemies) if (e.type !== 'boss') { e.dead = true; this.tweens.add({ targets: e.sp, x: e.sp.x + 400, alpha: 0, duration: 600, onComplete: () => e.sp.destroy() }); if (e.bar) { e.bar.destroy(); e.barBg.destroy(); } }
@@ -889,7 +889,7 @@ class RoundScene extends Phaser.Scene {
     }
     this.mTitle.setText(`미션 ${this.zone + 1}. ${m.text}`);
     let prog = '';
-    if (m.result === true) prog = '✔ 성공! 곧 다음 구역으로';
+    if (m.result === true) prog = m.id === 'm3' ? '✔ 성공! 파티 클리어' : '✔ 성공! 곧 다음 구역으로';
     else if (m.result === false) prog = '✖ 실패';
     else if (m.id === 'm1') prog = `남은 하인 가면 ${Math.max(0, m.goal - this.servantKills)}개  (${Math.min(this.servantKills, m.goal)}/${m.goal})   제한 ${Math.max(0, Math.ceil(ZONES[0].max - zt))}초`;
     else if (m.id === 'm2') prog = m.active ? `버티기 ${Math.max(0, Math.ceil(m.to - zt))}초 남음` : `${Math.max(0, Math.ceil(m.from - zt))}초 뒤 시작`;
@@ -898,17 +898,71 @@ class RoundScene extends Phaser.Scene {
     if (m.result == null && m.id === 'm1' && this.servantKills >= m.goal) this.endMission(m, true);
     if (m.result == null && m.id === 'm3' && this.m3Progress() >= 1) this.endMission(m, true);
   }
-  m3Progress() { const b = this.boss; if (!b) return 0; const dealt = (this.stats.bossBreaks || 0) * b.max + (b.max - b.hp); return Math.min(1, dealt / (b.max * 0.5)); }
+  m3Progress() { const b = this.boss; if (!b) return 0; const dealt = (this.stats.bossBreaks || 0) * b.max + (b.max - b.hp); return Math.min(1, dealt / b.max); }
   endMission(m, ok) {
     if (m.result != null) return;
     m.result = ok; this.stats.missions[m.id] = ok ? 1 : 0;
     const i = MISSIONS.findIndex(x => x.id === m.id);
     this.mDots[i].setText(ok ? '✔' : '✖').setColor(ok ? '#1fa36b' : '#d94a6a');
-    if (ok) { SFX.clear(); this.banner('MISSION CLEAR!', '#ffe14f', 0x6a3fb5, m.text); }
+    if (ok && m.id !== 'm3') { SFX.clear(); this.banner('MISSION CLEAR!', '#ffe14f', 0x6a3fb5, m.text); }
     else { SFX.fail(); this.banner('미션 실패', '#ffffff', 0x8a7fa8, m.text); }
     if (m.id === 'm1' && ok) this.zoneEndAt = this.zt + 1.4;     // 미션 1 성공 → 잠깐 축하 후 바로 이동
     if (m.id === 'm2') this.zoneEndAt = Math.max(this.zt + 1.4, m.to);
-    if (m.id === 'm3' && ok) this.zoneEndAt = this.zt + 1.8;     // 마지막 미션 성공 → 라운드 종료
+    if (m.id === 'm3' && ok) { this.bossFinale(); this.zoneEndAt = this.zt + 0.1; }
+  }
+  // 보스 가면이 산산조각: 피날레 연출
+  bossFinale() {
+    const b = this.boss; if (!b || b.shattered) return; b.shattered = true;
+    this.finaleT = 1;
+    for (const h of this.hazards) { h.dead = true; (Array.isArray(h.g) ? h.g : [h.g]).forEach(g => g.destroy()); if (h.bang) h.bang.destroy(); if (h.obj) h.obj.destroy(); }
+    this.freeze = 0.25; this.cam.shake(500, 0.012); this.cam.flash(300, 255, 255, 255);
+    SFX.big(); setTimeout(() => SFX.clear(), 250);
+    const cx = b.sp.x, cy = b.sp.y;
+    for (let i = 0; i < 18; i++) {   // 가면 조각
+      const sh = this.add.triangle(cx, cy, 0, 0, Phaser.Math.Between(10, 30), Phaser.Math.Between(-10, 10), Phaser.Math.Between(0, 20), Phaser.Math.Between(14, 32), Phaser.Utils.Array.GetRandom([0x6a3fb5, 0xe8b84a, 0xfff1c2, 0x8f86ff])).setDepth(this.D.ui - 3);
+      const ang = Math.random() * Math.PI * 2, r = 160 + Math.random() * 220;
+      this.tweens.add({ targets: sh, x: cx + Math.cos(ang) * r, y: cy + Math.sin(ang) * r + 120, angle: Phaser.Math.Between(-540, 540), alpha: 0, duration: 1400, ease: 'Cubic.out', onComplete: () => sh.destroy() });
+    }
+    b.cracks.clear(); this.tweens.add({ targets: b.sp, scale: 1.3, alpha: 0, duration: 300, onComplete: () => b.sp.setVisible(false) });
+    for (let i = 0; i < 60; i++) {   // 색종이 비
+      const c = this.add.image(this.cam.scrollX + Math.random() * CFG.W, -20 - Math.random() * 200, 'confetti').setTint(Phaser.Utils.Array.GetRandom([0xffc94a, 0x8f86ff, 0x3fd1c4, 0xff9fd0, 0xffffff])).setScale(1.8).setDepth(this.D.ui - 3);
+      this.tweens.add({ targets: c, y: CFG.GROUND + 20, angle: Phaser.Math.Between(180, 720), x: c.x + Phaser.Math.Between(-60, 60), duration: 1800 + Math.random() * 1200, onComplete: () => c.destroy() });
+    }
+    this.allies.forEach((a, i) => this.tweens.add({ targets: a.sprite, y: a.sprite.y - 40, duration: 220, yoyo: true, repeat: 3, delay: i * 60 }));
+    this.banner('PARTY CLEAR!', '#ffe14f', 0x6a3fb5, '마스케라의 가면을 깨뜨렸어요!');
+  }
+  // 라운드 결과 카드 (성공이든 시간 종료든 같은 형태)
+  roundEnd() {
+    if (this.ending > 0) return;
+    this.ending = 5.8; this.summaryShown = false;
+    const clear = this.stats.missions.m3 === 1;
+    if (!clear) { this.banner('시간 종료!', '#ffffff', 0x8a7fa8, '마스케라가 도망쳤어요'); SFX.fail(); }
+    for (const e of this.enemies) if (e.type !== 'boss') { e.dead = true; this.tweens.add({ targets: e.sp, alpha: 0, duration: 400, onComplete: () => e.sp.destroy() }); if (e.bar) { e.bar.destroy(); e.barBg.destroy(); } }
+    this.time.delayedCall(2000, () => this.showSummary(clear));
+  }
+  showSummary(clear) {
+    const { W } = CFG, st = this.stats;
+    const ms = Object.values(st.missions).reduce((a, b) => a + b, 0);
+    const rate = this.dangerSeen ? Math.round((1 - st.hitsDanger / this.dangerSeen) * 100) : 100;
+    const rank = rate >= 90 && ms === 3 ? 'S' : rate >= 75 && ms >= 2 ? 'A' : rate >= 55 ? 'B' : 'C';
+    const c = this.add.container(W / 2, 290).setScrollFactor(0).setDepth(this.D.ui + 6);
+    const g = this.add.graphics(); g.fillStyle(0x1d1830, 0.35); g.fillRoundedRect(-230, -142, 460, 300, 24); g.fillStyle(0xffffff, 0.97); g.fillRoundedRect(-230, -150, 460, 300, 24);
+    c.add(g);
+    c.add(this.add.text(0, -122, `라운드 ${this.index + 1} 결과`, { fontFamily: FONT, fontSize: 22, fontStyle: 'bold', color: '#2a2350' }).setOrigin(0.5));
+    const rk = this.add.text(-130, 0, rank, { fontFamily: FONT, fontSize: 96, fontStyle: 'bold', color: { S: '#e0a21c', A: '#6a3fb5', B: '#1fb3a5', C: '#8a7fa8' }[rank] }).setOrigin(0.5);
+    c.add(rk); c.add(this.add.text(-130, 62, '랭크', { fontFamily: FONT, fontSize: 14, color: '#8a7fa8' }).setOrigin(0.5));
+    const lines = [
+      ['회피 성공률', `${rate}%`], ['위험 공격', `${this.dangerSeen}번 중 ${st.hitsDanger}번 맞음`],
+      ['미션', `${ms} / 3 성공`], ['준 피해', `${st.damage}`], ['보스', clear ? '가면 파괴 ✔' : '놓침'],
+    ];
+    lines.forEach(([k, v], i) => {
+      c.add(this.add.text(-40, -70 + i * 34, k, { fontFamily: FONT, fontSize: 16, color: '#8a7fa8' }));
+      c.add(this.add.text(200, -70 + i * 34, v, { fontFamily: FONT, fontSize: 17, fontStyle: 'bold', color: '#2a2350' }).setOrigin(1, 0));
+    });
+    c.add(this.add.text(0, 122, this.index === 0 ? '잠시 뒤 질문 2개 → 라운드 2' : '잠시 뒤 질문 2개 → 마지막 질문', { fontFamily: FONT, fontSize: 13, color: '#8a7fa8' }).setOrigin(0.5));
+    c.setScale(0.7).setAlpha(0); this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 260, ease: 'Back.out' });
+    rk.setScale(2.2); this.tweens.add({ targets: rk, scale: 1, duration: 380, delay: 200, ease: 'Bounce.out' });
+    SFX.ok();
   }
   popTextCenter(msg) {
     const m = this.add.text(CFG.W / 2, 150, msg, { fontFamily: FONT, fontSize: 22, fontStyle: 'bold', color: '#ffffff', stroke: '#6a3fb5', strokeThickness: 5 }).setOrigin(0.5).setScrollFactor(0).setDepth(this.D.ui);
@@ -928,7 +982,7 @@ class RoundScene extends Phaser.Scene {
     this.timerText.setText(`${Z.name}`);
 
     // 라운드 끝
-    if (this.ending > 0) { this.ending -= dt; if (this.ending <= 0) return this.finish(); }
+    if (this.ending > 0) { this.ending -= dt; if (this.ending <= 0) return this.finish(); return; }
 
     if (this.transT > 0) {   // 다음 구역으로 이동 중
       this.transT -= dt;
@@ -969,7 +1023,7 @@ class RoundScene extends Phaser.Scene {
       }
       else { e.sp.y = GROUND + ENEMY[e.type].y - Math.abs(Math.sin(e.bob * 5)) * 5; const by = e.sp.y - (e.type === 'doll' ? 56 : 44); e.barBg.setPosition(e.sp.x, by); e.bar.setPosition(e.sp.x - 21, by); }
       e.sp.flipX = e.sp.x > this.me.x;
-      if (e.type !== 'boss' && !this.moving) { e.atkT -= dt; if (e.atkT <= 0) { this.enemyAttack(e); e.atkT = e.type === 'servant' ? 3.4 : 2.8; } }
+      if (e.type !== 'boss' && !this.moving) { e.atkT -= dt; if (e.atkT <= 0) { this.enemyAttack(e); e.atkT = e.type === 'servant' ? 2.8 : 2.3; } }
     }
     this.enemies = this.enemies.filter(e => !e.dead);
 
