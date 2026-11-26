@@ -24,7 +24,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-2.2',
+  version: 'PP-2.3',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycbzRPIcB805fQv0X2EKGOGoE0JdrMudX7-HEzIzF9UJhyEdXejciDMcgw_TlgoGMNreUQg/exec',
@@ -502,7 +502,7 @@ class RoundScene extends Phaser.Scene {
   create() {
     const { W, H, GROUND, WORLD } = CFG;
     this.t = 0; this.done = false; this.freeze = 0;
-    this.stats = { hitsDanger: 0, hitsBy: { fountain: 0, chandelier: 0, rain: 0, waltz: 0, dash: 0, servant: 0, doll: 0 }, shieldBlocks: 0, damage: 0, kills: 0, downs: 0, missions: {} };
+    this.stats = { hitsDanger: 0, hitsBy: { fountain: 0, chandelier: 0, rain: 0, waltz: 0, dash: 0, servant: 0, doll: 0 }, shieldBlocks: 0, blockedBy: { fountain: 0, chandelier: 0, rain: 0, waltz: 0, dash: 0, servant: 0, doll: 0 }, damage: 0, kills: 0, downs: 0, missions: {} };
     this.hazards = []; this.enemies = []; this.boss = null; this.servantKills = 0;
     this.hp = 100; this.downT = 0; this.dangerSeen = 0; this.score = 0; this.streak = 0; this.bestStreak = 0;
     this.zone = -1; this.zt = 0; this.transT = 0; this.ending = 0; this.stats.zoneTimes = [];
@@ -863,8 +863,8 @@ class RoundScene extends Phaser.Scene {
 
   takeHit(kind) {
     if (this.hero.invuln > 0 || this.hero.dashT > 0 || this.downT > 0) return;
-    if (this.shield > 0) {
-      this.shield = 0; this.stats.shieldBlocks++; this.hero.invuln = 0.6; this.shieldHud.setVisible(false);
+    if (this.shield > 0) {   // 보호막이 막아도 '피하지 못한 공격'으로 집계 (지표에 운이 섞이지 않게)
+      this.shield = 0; this.stats.shieldBlocks++; this.stats.blockedBy[kind]++; this.hero.invuln = 0.6; this.shieldHud.setVisible(false);
       this.tweens.add({ targets: this.shieldFx, scale: 1.5, alpha: 0, duration: 250, onComplete: () => this.shieldFx.setVisible(false).setAlpha(1) });
       this.popWorld(this.me.x, this.me.y - 80, '보호막이 막아 줬어요!', '#ffe066'); SFX.tone(1200, 0.1, 'triangle', 0.05);
       this.streak = Math.max(0, this.streak);   // 보호막으로 막은 건 연속 회피를 끊지 않음
@@ -968,7 +968,7 @@ class RoundScene extends Phaser.Scene {
   showSummary(clear) {
     const { W } = CFG, st = this.stats;
     const ms = Object.values(st.missions).reduce((a, b) => a + b, 0);
-    const rate = this.dangerSeen ? Math.round((1 - st.hitsDanger / this.dangerSeen) * 100) : 100;
+    const rate = this.dangerSeen ? Math.round((1 - (st.hitsDanger + st.shieldBlocks) / this.dangerSeen) * 100) : 100;
     let rank = this.score >= 6000 ? 'S' : this.score >= 4000 ? 'A' : this.score >= 2000 ? 'B' : 'C';
     if (st.downs >= 2 && (rank === 'S' || rank === 'A')) rank = 'B';   // 다운 2번 이상이면 최대 B
     const c = this.add.container(W / 2, 290).setScrollFactor(0).setDepth(this.D.ui + 6);
@@ -1110,7 +1110,7 @@ class RoundScene extends Phaser.Scene {
 
   finish() {
     this.done = true;
-    const r = { round: this.index + 1, mode: this.mode, dangerSeen: this.dangerSeen, hitRate: this.dangerSeen ? Math.round(this.stats.hitsDanger / this.dangerSeen * 1000) / 10 : 0, roundSec: Math.round(this.t * 10) / 10, score: this.score, bestStreak: this.bestStreak, ...this.stats, attacks: this.hero.events.attacks, dashes: this.hero.events.dashes, spins: this.hero.events.spins };
+    const r = { round: this.index + 1, mode: this.mode, dangerSeen: this.dangerSeen, hitRate: this.dangerSeen ? Math.round((this.stats.hitsDanger + this.stats.shieldBlocks) / this.dangerSeen * 1000) / 10 : 0, hpHitRate: this.dangerSeen ? Math.round(this.stats.hitsDanger / this.dangerSeen * 1000) / 10 : 0, roundSec: Math.round(this.t * 10) / 10, score: this.score, bestStreak: this.bestStreak, ...this.stats, attacks: this.hero.events.attacks, dashes: this.hero.events.dashes, spins: this.hero.events.spins };
     LOG.rounds.push(r);
     this.scene.start('Survey', { index: this.index, result: r });
   }
