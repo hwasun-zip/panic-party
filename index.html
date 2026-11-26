@@ -22,7 +22,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-1.2',
+  version: 'PP-1.3',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75, SCROLL: 42,
   endpoint: 'https://script.google.com/macros/s/AKfycbzRPIcB805fQv0X2EKGOGoE0JdrMudX7-HEzIzF9UJhyEdXejciDMcgw_TlgoGMNreUQg/exec',
@@ -204,12 +204,124 @@ function makeTextures(scene) {
   g.clear(); g.lineStyle(5, 0xffffff, 1);
   for (let k = 0; k < 4; k++) g.strokeEllipse(30, 14 + k * 14, 56 - k * 10, 14);
   g.generateTexture('waltz', 60, 70);
+  // 연습용 허수아비 (가면 쓴 마네킹)
+  g.clear();
+  g.fillStyle(0xb58a5a, 1); g.fillRect(28, 40, 6, 44); g.fillRect(8, 46, 46, 5);
+  g.fillStyle(0xf3e1c0, 1); g.fillRoundedRect(14, 34, 34, 34, 10);
+  g.fillStyle(0xf3e1c0, 1); g.fillCircle(31, 22, 14);
+  g.fillStyle(0xffffff, 1); g.fillEllipse(31, 21, 26, 11); g.fillStyle(0x1d1830, 1); g.fillEllipse(25, 21, 6, 3); g.fillEllipse(37, 21, 6, 3);
+  g.fillStyle(0xd94a6a, 1); g.fillCircle(31, 52, 7); g.fillStyle(0xffffff, 1); g.fillCircle(31, 52, 3);
+  g.generateTexture('dummy', 62, 86);
+  g.clear(); g.fillStyle(0xffffff, 1); g.fillTriangle(6, 0, 8, 6, 4, 6); g.fillTriangle(0, 6, 6, 4, 6, 8); g.fillTriangle(12, 6, 6, 4, 6, 8); g.fillTriangle(6, 12, 8, 6, 4, 6); g.generateTexture('spark', 12, 12);
   g.clear(); g.fillStyle(0xffffff, 1); g.fillCircle(8, 8, 8); g.generateTexture('dot', 16, 16);
   g.clear(); g.fillStyle(0xffffff, 1); g.fillRoundedRect(0, 0, 12, 16, 2); g.generateTexture('card', 12, 16);
   g.clear(); g.fillStyle(0xffffff, 1); g.fillRect(0, 0, 8, 5); g.generateTexture('confetti', 8, 5);
   g.clear(); g.fillStyle(0xffffff, 1); g.fillCircle(5, 14, 5); g.fillRect(8, 0, 2, 14); g.fillRect(8, 0, 7, 3); g.generateTexture('note', 16, 20);
   g.clear(); g.lineStyle(5, 0xffffff, 1); g.beginPath(); g.arc(4, 30, 30, -1.2, 1.2); g.strokePath(); g.generateTexture('slash', 40, 60);
   g.destroy();
+}
+
+// ---------- 효과음 (파일 없이 Web Audio로 생성) ----------
+const SFX = {
+  ctx: null,
+  init() { try { this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)(); if (this.ctx.state === 'suspended') this.ctx.resume(); } catch (e) {} },
+  tone(freq, dur, type = 'square', vol = 0.06, slide = 0) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t + dur);
+  },
+  hit(n = 1) { this.tone(320 + n * 90, 0.07, 'square', 0.05, -120); },
+  big() { this.tone(180, 0.18, 'sawtooth', 0.07, -100); this.tone(520, 0.1, 'square', 0.04); },
+  hurt() { this.tone(140, 0.25, 'sawtooth', 0.08, -80); },
+  kill() { [660, 880, 1100].forEach((f, i) => setTimeout(() => this.tone(f, 0.08, 'triangle', 0.05), i * 50)); },
+  clear() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => this.tone(f, 0.14, 'triangle', 0.07), i * 90)); },
+  fail() { [392, 330, 262].forEach((f, i) => setTimeout(() => this.tone(f, 0.16, 'triangle', 0.06), i * 110)); },
+  ok() { this.tone(880, 0.08, 'triangle', 0.06); setTimeout(() => this.tone(1320, 0.1, 'triangle', 0.06), 70); },
+  jump() { this.tone(300, 0.08, 'triangle', 0.03, 200); },
+  dash() { this.tone(500, 0.08, 'sawtooth', 0.025, -300); },
+};
+
+// ---------- 공통: 주인공 조작 (튜토리얼과 본 게임에서 같이 사용) ----------
+class Hero {
+  constructor(scene, x, depth) {
+    this.s = scene; this.sp = scene.add.image(x, CFG.GROUND - 35, 'me').setScale(1.2).setDepth(depth);
+    this.vy = 0; this.onGround = true; this.face = 1;
+    this.invuln = 0; this.dashT = 0; this.dashCd = 0; this.atkCd = 0; this.combo = 0; this.comboT = 0; this.spinCd = 0;
+    this.keys = scene.input.keyboard.addKeys('LEFT,RIGHT,UP,SPACE,X,Z,C');
+    this.events = { moved: 0, jumps: 0, dashes: 0, attacks: 0, combo3: 0, spins: 0 };
+  }
+  get x() { return this.sp.x; } get y() { return this.sp.y; }
+  update(dt, minX, maxX, onAttack, onSpin) {
+    const k = this.keys, sp = this.sp;
+    this.dashCd -= dt; this.atkCd -= dt; this.invuln -= dt; this.comboT -= dt; this.spinCd -= dt;
+    const x0 = sp.x;
+    if (this.dashT > 0) { this.dashT -= dt; sp.x += this.face * 640 * dt; }
+    else {
+      let mv = 0; if (k.LEFT.isDown) mv -= 1; if (k.RIGHT.isDown) mv += 1;
+      if (mv) this.face = mv;
+      sp.x += mv * 280 * dt;
+      if ((Phaser.Input.Keyboard.JustDown(k.UP) || Phaser.Input.Keyboard.JustDown(k.SPACE)) && this.onGround) { this.vy = -580; this.onGround = false; this.events.jumps++; SFX.jump(); }
+      if (Phaser.Input.Keyboard.JustDown(k.X) && this.dashCd <= 0) { this.dashT = 0.22; this.dashCd = 0.8; this.events.dashes++; SFX.dash(); this.afterimage(); }
+      if (Phaser.Input.Keyboard.JustDown(k.Z) && this.atkCd <= 0) this.attack(onAttack);
+      if (Phaser.Input.Keyboard.JustDown(k.C) && this.spinCd <= 0) this.spin(onSpin);
+    }
+    this.vy += 1500 * dt; sp.y += this.vy * dt;
+    if (sp.y >= CFG.GROUND - 35) { sp.y = CFG.GROUND - 35; this.vy = 0; this.onGround = true; }
+    sp.x = Phaser.Math.Clamp(sp.x, minX, maxX);
+    this.events.moved += Math.abs(sp.x - x0);
+    sp.flipX = this.face < 0;
+    sp.setAlpha(this.invuln > 0 ? (Math.floor(this.s.time.now / 50) % 2 ? 0.35 : 1) : 1);
+  }
+  afterimage() {
+    for (let i = 0; i < 3; i++) this.s.time.delayedCall(i * 50, () => {
+      const g = this.s.add.image(this.sp.x, this.sp.y, 'me').setScale(1.2).setAlpha(0.4).setTint(0xb9b2ff).setDepth(this.sp.depth - 1); g.flipX = this.sp.flipX;
+      this.s.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
+    });
+  }
+  attack(cb) {
+    this.atkCd = 0.18; this.events.attacks++;
+    this.combo = this.comboT > 0 ? (this.combo % 3) + 1 : 1; this.comboT = 0.5;
+    if (this.combo === 3) this.events.combo3++;
+    const dmg = [0, 30, 36, 60][this.combo];
+    const sl = this.s.add.image(this.sp.x + this.face * 30, this.sp.y - 4, 'slash').setTint(this.combo === 3 ? 0xffc94a : 0xffffff).setScale(this.combo === 3 ? 1.7 : 1.25).setDepth(this.sp.depth + 1);
+    sl.flipX = this.face < 0; sl.angle = this.combo === 2 ? -30 : 0;
+    this.s.tweens.add({ targets: sl, alpha: 0, x: sl.x + this.face * 22, duration: 170, onComplete: () => sl.destroy() });
+    this.s.tweens.add({ targets: this.sp, scaleX: 1.32, scaleY: 1.1, duration: 60, yoyo: true });
+    if (this.combo === 3) this.sp.x += this.face * 24;
+    if (cb) cb(dmg, this.combo, this.face);
+  }
+  spin(cb) {
+    this.spinCd = 5; this.events.spins++; SFX.big();
+    const ring = this.s.add.circle(this.sp.x, this.sp.y, 20, 0xffc94a, 0.25).setStrokeStyle(6, 0xffc94a, 1).setDepth(this.sp.depth + 1);
+    this.s.tweens.add({ targets: ring, radius: 170, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+    this.s.tweens.add({ targets: this.sp, angle: 360 * this.face, duration: 380, onComplete: () => this.sp.setAngle(0) });
+    if (cb) cb();
+  }
+}
+
+// ---------- 공통: 맞았을 때 반응 (불꽃, 숫자, 경직) ----------
+function hitBurst(scene, x, y, amount, big, depth) {
+  for (let i = 0; i < (big ? 10 : 6); i++) {
+    const d = scene.add.image(x, y, 'spark').setTint(big ? 0xffc94a : 0xffffff).setDepth(depth).setScale(big ? 1.3 : 1);
+    const ang = Math.random() * Math.PI * 2, r = 30 + Math.random() * (big ? 60 : 35);
+    scene.tweens.add({ targets: d, x: x + Math.cos(ang) * r, y: y + Math.sin(ang) * r, angle: 180, alpha: 0, scale: 0.2, duration: 260, onComplete: () => d.destroy() });
+  }
+  const t = scene.add.text(x + Phaser.Math.Between(-16, 16), y - 20, String(amount), { fontFamily: FONT, fontSize: big ? 30 : 22, fontStyle: 'bold', color: big ? '#ffc94a' : '#ffffff', stroke: '#2a2350', strokeThickness: 5 }).setOrigin(0.5).setDepth(depth + 1);
+  scene.tweens.add({ targets: t, y: t.y - 50, scale: { from: 1.4, to: 1 }, alpha: { from: 1, to: 0 }, duration: 650, onComplete: () => t.destroy() });
+}
+
+// ---------- 공통: 키캡 그리기 ----------
+function keycap(scene, x, y, label, w = 44) {
+  const c = scene.add.container(x, y);
+  const g = scene.add.graphics();
+  g.fillStyle(0x1d1830, 0.35); g.fillRoundedRect(-w / 2, -18, w, 40, 8);
+  g.fillStyle(0xffffff, 1); g.fillRoundedRect(-w / 2, -22, w, 38, 8);
+  g.lineStyle(2, 0xd9cff7, 1); g.strokeRoundedRect(-w / 2, -22, w, 38, 8);
+  c.add(g); c.add(scene.add.text(0, -3, label, { fontFamily: FONT, fontSize: 16, fontStyle: 'bold', color: '#2a2350' }).setOrigin(0.5));
+  return c;
 }
 
 // =====================================================================
@@ -219,27 +331,157 @@ class TitleScene extends Phaser.Scene {
     makeTextures(this);
     LOG.init();
     const { W, H } = CFG;
-    this.add.rectangle(W / 2, H / 2, W, H, 0x2a2350);
-    ['magician', 'dancer', 'me', 'jester', 'singer', 'knight'].forEach((k, i) => this.add.image(W / 2 - 250 + i * 100, 150, k).setScale(1.5));
-    this.add.text(W / 2, 50, 'PANIC PARTY', { fontFamily: FONT, fontSize: 44, fontStyle: 'bold', color: '#ffc94a' }).setOrigin(0.5);
-    this.add.text(W / 2, 92, '혼돈 속에서 나를 찾아라 (약 3분)', { fontFamily: FONT, fontSize: 18, color: '#c9c2ff' }).setOrigin(0.5);
-    const lines = [
-      '파티원 5명과 함께 정원, 무도회장, 무대를 지나 거대 가면 "마스케라"에게 가세요.',
-      '75초 라운드를 2번 합니다. 화면은 자동으로 흘러가고, 구역마다 미션이 있어요.',
-      '목표: 위험한 공격을 최대한 피하면서 적을 물리치세요. (쓰러지지는 않습니다)',
-      '',
-      '← → 이동    ↑ / Space 점프    X 대시(잠깐 무적)',
-      'Z 공격 (연타하면 3연속 베기)    C 회전 베기 (5초마다)',
-      '',
-      '라운드가 끝나면 짧은 질문 2개에 답해 주세요.',
-    ];
-    this.add.text(W / 2, 330, lines.join('\n'), { fontFamily: FONT, fontSize: 18, color: '#ffffff', align: 'center', lineSpacing: 8 }).setOrigin(0.5);
-    const start = this.add.text(W / 2, 495, '[ Enter 또는 클릭으로 시작 ]', { fontFamily: FONT, fontSize: 22, color: '#ffc94a' }).setOrigin(0.5);
-    this.tweens.add({ targets: start, alpha: 0.4, duration: 700, yoyo: true, repeat: -1 });
-    const go = () => this.scene.start('Round', { index: 0 });
-    this.input.keyboard.once('keydown-ENTER', go);
-    this.input.once('pointerdown', go);
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0xffd9c2, 0xffd9c2, 0xc9b8ff, 0xc9b8ff, 1); bg.fillRect(0, 0, W, H);
+    for (let i = 0; i < 40; i++) {   // 떠다니는 색종이
+      const c = this.add.image(Math.random() * W, Math.random() * H, 'confetti').setTint(Phaser.Utils.Array.GetRandom([0x8f86ff, 0x3fd1c4, 0xffc94a, 0xffffff])).setAlpha(0.7).setScale(1.5).setAngle(Math.random() * 360);
+      this.tweens.add({ targets: c, y: c.y + 40, angle: c.angle + 180, duration: 2000 + Math.random() * 2000, yoyo: true, repeat: -1 });
+    }
+    this.add.text(W / 2 + 4, 104, 'PANIC PARTY', { fontFamily: FONT, fontSize: 72, fontStyle: 'bold', color: '#6a3fb5' }).setOrigin(0.5).setAlpha(0.35);
+    this.add.text(W / 2, 100, 'PANIC PARTY', { fontFamily: FONT, fontSize: 72, fontStyle: 'bold', color: '#ffffff', stroke: '#6a3fb5', strokeThickness: 10 }).setOrigin(0.5);
+    this.add.text(W / 2, 162, '혼돈 속에서 나를 찾아라', { fontFamily: FONT, fontSize: 22, fontStyle: 'bold', color: '#4a3a8f' }).setOrigin(0.5);
+    const crew = ['singer', 'magician', 'dancer', 'me', 'jester', 'knight'];
+    crew.forEach((k, i) => {
+      const x = W / 2 - 250 + i * 100, sp = this.add.image(x, 290, k).setScale(k === 'me' ? 2.2 : 1.7);
+      this.tweens.add({ targets: sp, y: 280, duration: 380 + i * 40, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      if (k === 'me') this.add.text(x, 220, '나', { fontFamily: FONT, fontSize: 16, fontStyle: 'bold', color: '#ffffff', backgroundColor: '#e0a21c', padding: { x: 8, y: 3 } }).setOrigin(0.5);
+    });
+    this.add.text(W / 2, 370, '파티원 5명과 함께 가면무도회를 지나 거대 가면 "마스케라"에게 가세요.\n75초 라운드 2번 + 짧은 질문, 약 4분이면 끝나요.', { fontFamily: FONT, fontSize: 17, color: '#2a2350', align: 'center', lineSpacing: 6 }).setOrigin(0.5);
+    const btn = this.add.container(W / 2, 460);
+    const bgb = this.add.graphics(); bgb.fillStyle(0x6a3fb5, 1); bgb.fillRoundedRect(-130, -28, 260, 56, 28);
+    btn.add(bgb); btn.add(this.add.text(0, 0, '파티 입장  ▶', { fontFamily: FONT, fontSize: 22, fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5));
+    btn.setSize(260, 56).setInteractive({ useHandCursor: true });
+    this.tweens.add({ targets: btn, scale: 1.05, duration: 600, yoyo: true, repeat: -1 });
+    this.add.text(W / 2, 510, 'Enter 또는 클릭', { fontFamily: FONT, fontSize: 13, color: '#4a3a8f' }).setOrigin(0.5);
+    const go = () => { SFX.init(); SFX.ok(); this.scene.start('Tutorial'); };
+    this.input.keyboard.once('keydown-ENTER', go); btn.on('pointerdown', go);
   }
+}
+
+// =====================================================================
+// 튜토리얼: 직접 움직이며 조작을 익힘. 예고 표시는 A안, B안과 다른 "중립" 모양(흰 점선 느낌)으로 보여 줘서 어느 쪽에도 유리하지 않게 함
+class TutorialScene extends Phaser.Scene {
+  constructor() { super('Tutorial'); }
+  create() {
+    const { W, H, GROUND } = CFG;
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0xffe6d6, 0xffe6d6, 0xe3d8ff, 0xe3d8ff, 1); bg.fillRect(0, 0, W, GROUND);
+    for (let x = 0; x < W; x += 40) { bg.fillStyle((x / 40) % 2 ? 0xfff6e6 : 0xe9e2ff, 1); bg.fillRect(x, GROUND, 40, H - GROUND); }
+    bg.fillStyle(0x9ad1b0, 1); for (let x = 0; x < W; x += 90) bg.fillCircle(x + 40, GROUND - 20, 46);
+    bg.fillStyle(0xd9cff7, 1); bg.fillRect(0, GROUND, W, 5);
+    this.add.text(W / 2, GROUND + 50, '연습실', { fontFamily: FONT, fontSize: 16, color: '#8a7fc0' }).setOrigin(0.5);
+
+    this.hero = new Hero(this, 260, 30);
+    this.dummy = this.add.image(700, GROUND - 40, 'dummy').setScale(1.3).setDepth(20);
+    this.dummyFlash = 0;
+    this.hp = 100;
+    this.hpUI = makeHpBar(this, 16, 16);
+
+    // 상단 안내 카드
+    this.card = this.add.container(W / 2, 92).setDepth(100);
+    const cg = this.add.graphics(); cg.fillStyle(0x6a3fb5, 0.18); cg.fillRoundedRect(-300, -62, 600, 132, 20); cg.fillStyle(0xffffff, 0.97); cg.fillRoundedRect(-300, -68, 600, 132, 20);
+    this.card.add(cg);
+    this.stepNo = this.add.text(-276, -54, '', { fontFamily: FONT, fontSize: 14, fontStyle: 'bold', color: '#8f86ff' });
+    this.stepTitle = this.add.text(0, -26, '', { fontFamily: FONT, fontSize: 22, fontStyle: 'bold', color: '#2a2350', align: 'center' }).setOrigin(0.5);
+    this.stepSub = this.add.text(0, 6, '', { fontFamily: FONT, fontSize: 15, color: '#5b5480', align: 'center' }).setOrigin(0.5);
+    this.keyRow = this.add.container(0, 38);
+    this.card.add([this.stepNo, this.stepTitle, this.stepSub, this.keyRow]);
+    this.dots = [];
+    this.add.text(W - 14, H - 12, 'Esc 건너뛰기', { fontFamily: FONT, fontSize: 12, color: '#8a7fc0' }).setOrigin(1, 1);
+    this.input.keyboard.once('keydown-ESC', () => this.finish());
+
+    this.steps = [
+      { title: '이 캐릭터가 바로 나예요!', sub: '금색 가면과 흰 연미복을 기억해 두세요. 혼잡한 파티에서 나를 찾아야 해요.', keys: [['Enter', 70]], check: () => this.enter },
+      { title: '좌우로 움직여 보세요', sub: '', keys: [['←'], ['→']], check: () => this.hero.events.moved > 300 },
+      { title: '점프 2번', sub: '바닥을 쓸고 오는 공격은 점프로 피해요.', keys: [['↑'], ['Space', 80]], check: () => this.hero.events.jumps >= 2 },
+      { title: '대시 2번', sub: '대시하는 순간에는 잠깐 무적이에요.', keys: [['X']], check: () => this.hero.events.dashes >= 2 },
+      { title: '허수아비에게 3연속 베기', sub: 'Z를 빠르게 3번 누르면 마지막 일격이 강해져요.', keys: [['Z'], ['Z'], ['Z']], check: () => this.combo3Hit },
+      { title: '회전 베기', sub: '주변을 크게 베는 필살기. 5초마다 쓸 수 있어요.', keys: [['C']], check: () => this.spinHit },
+      { title: '바닥 표시를 피해 보세요 (3번)', sub: '공격 전에는 표시가 나타나요. 맞으면 체력이 줄어요.', keys: [['←'], ['→'], ['X']], check: () => this.dodged >= 3 },
+      { title: '준비 완료!', sub: '이제 진짜 파티예요. 파티원 5명이 함께 싸우니까 화면이 훨씬 정신없을 거예요.', keys: [['Enter', 70]], check: () => this.enter },
+    ];
+    this.steps.forEach((_, i) => { const d = this.add.circle(W / 2 - (this.steps.length - 1) * 9 + i * 18, 176, 5, 0xd9cff7).setDepth(100); this.dots.push(d); });
+    this.input.keyboard.on('keydown-ENTER', () => { this.enter = true; });
+    this.dodged = 0; this.tele = null; this.idx = -1; this.wait = 0;
+    this.next();
+  }
+  next() {
+    this.idx++;
+    if (this.idx >= this.steps.length) return this.finish();
+    this.enter = false;
+    const st = this.steps[this.idx];
+    this.stepNo.setText(`STEP ${this.idx + 1} / ${this.steps.length}`);
+    this.stepTitle.setText(st.title); this.stepSub.setText(st.sub);
+    this.keyRow.removeAll(true);
+    let x = -((st.keys.length - 1) * 60) / 2;
+    st.keys.forEach(([k, w]) => { this.keyRow.add(keycap(this, x, 0, k, w || 44)); x += 60; });
+    this.dots.forEach((d, i) => d.setFillStyle(i < this.idx ? 0x8f86ff : i === this.idx ? 0xffc94a : 0xd9cff7));
+    this.card.setScale(0.9); this.tweens.add({ targets: this.card, scale: 1, duration: 200, ease: 'Back.out' });
+    if (this.idx === 0) this.spotlight(true);
+    if (this.idx === 1) this.spotlight(false);
+  }
+  spotlight(on) {
+    if (on) {
+      this.dim = this.add.rectangle(CFG.W / 2, CFG.H / 2, CFG.W, CFG.H, 0x1d1830, 0.45).setDepth(25);
+      this.ring = this.add.circle(this.hero.x, this.hero.y, 50, 0xffffff, 0).setStrokeStyle(4, 0xffc94a).setDepth(31);
+      this.tweens.add({ targets: this.ring, scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
+      this.meTag = this.add.text(this.hero.x, this.hero.y - 80, '나', { fontFamily: FONT, fontSize: 18, fontStyle: 'bold', color: '#ffffff', backgroundColor: '#e0a21c', padding: { x: 10, y: 4 } }).setOrigin(0.5).setDepth(31);
+    } else { [this.dim, this.ring, this.meTag].forEach(o => o && o.destroy()); }
+  }
+  done() {
+    SFX.ok(); this.wait = 0.9;
+    const ok = this.add.text(CFG.W / 2, 250, '좋아요! ✔', { fontFamily: FONT, fontSize: 30, fontStyle: 'bold', color: '#1fa36b', stroke: '#ffffff', strokeThickness: 6 }).setOrigin(0.5).setDepth(101);
+    this.tweens.add({ targets: ok, y: 220, alpha: 0, duration: 900, onComplete: () => ok.destroy() });
+  }
+  update(time, ms) {
+    const dt = Math.min(ms / 1000, 0.05);
+    if (this.idx < 0 || this.left) return;
+    const st = this.steps[this.idx];
+    const canMove = this.idx > 0 && this.idx < this.steps.length - 1;
+    if (canMove) this.hero.update(dt, 30, CFG.W - 30,
+      (dmg, combo, face) => { const dx = (this.dummy.x - this.hero.x) * face; if (dx > -30 && dx < 120) { this.hitDummy(dmg, combo === 3); if (combo === 3 && this.idx === 4) this.combo3Hit = true; } },
+      () => { if (Math.abs(this.dummy.x - this.hero.x) < 200) { this.hitDummy(120, true); if (this.idx === 5) this.spinHit = true; } });
+    if (this.dummyFlash > 0) { this.dummyFlash -= dt; if (this.dummyFlash <= 0) this.dummy.clearTint(); }
+    if (this.idx === 6) this.dodgeStep(dt);
+    if (this.wait > 0) { this.wait -= dt; if (this.wait <= 0) this.next(); return; }
+    if (st.check()) this.done();
+  }
+  hitDummy(dmg, big) {
+    big ? SFX.big() : SFX.hit(); this.dummy.setTint(0xffffff); this.dummyFlash = 0.08;
+    this.tweens.add({ targets: this.dummy, angle: { from: big ? 14 : 7, to: 0 }, duration: 260, ease: 'Back.out' });
+    hitBurst(this, this.dummy.x, this.dummy.y - 20, dmg, big, 60);
+    if (big) this.cameras.main.shake(90, 0.004);
+  }
+  dodgeStep(dt) {
+    if (this.wait > 0) return;
+    if (!this.tele) {
+      const x = this.hero.x;
+      this.tele = { x, t: 1.2, g: this.add.ellipse(x, CFG.GROUND, 180, 34, 0xffffff, 0.3).setStrokeStyle(3, 0x8a7fc0, 1).setDepth(15) };
+      this.tweens.add({ targets: this.tele.g, alpha: { from: 0.4, to: 1 }, duration: 200, yoyo: true, repeat: -1 });
+      return;
+    }
+    this.tele.t -= dt;
+    if (this.tele.t <= 0) {
+      const hit = Math.abs(this.hero.x - this.tele.x) < 90 && this.hero.dashT <= 0;
+      const jet = this.add.rectangle(this.tele.x, CFG.GROUND, 130, 10, 0x9fd3ff, 0.9).setOrigin(0.5, 1).setDepth(16);
+      this.tweens.add({ targets: jet, height: 240, alpha: 0, duration: 380, onComplete: () => jet.destroy() });
+      this.tweens.killTweensOf(this.tele.g); this.tele.g.destroy(); this.tele = null;
+      if (hit) { this.hp = Math.max(20, this.hp - 20); this.hpUI.set(this.hp); SFX.hurt(); this.cameras.main.flash(120, 255, 80, 100); this.hero.invuln = 0.6; }
+      else { this.dodged++; SFX.ok(); this.stepTitle.setText(`바닥 표시를 피해 보세요 (${this.dodged}/3)`); }
+    }
+  }
+  finish() { this.left = true; this.scene.start('Round', { index: 0 }); }
+}
+
+// ---------- 공통: 내 체력 바 ----------
+function makeHpBar(scene, x, y, fixed) {
+  const c = scene.add.container(x, y).setDepth(101);
+  if (fixed) c.setScrollFactor(0);
+  c.add(scene.add.text(0, 0, '내 체력', { fontFamily: FONT, fontSize: 13, fontStyle: 'bold', color: '#2a2350' }));
+  c.add(scene.add.rectangle(56, 9, 150, 12, 0xe6dff7).setOrigin(0, 0.5));
+  const bar = scene.add.rectangle(56, 9, 150, 12, 0x3fd18a).setOrigin(0, 0.5); c.add(bar);
+  const num = scene.add.text(212, 0, '100', { fontFamily: FONT, fontSize: 13, fontStyle: 'bold', color: '#2a2350' }); c.add(num);
+  return { c, set(v) { bar.width = 150 * Math.max(0, v) / 100; bar.setFillStyle(v > 50 ? 0x3fd18a : v > 25 ? 0xffb347 : 0xff6a7a); num.setText(String(Math.max(0, v))); } };
 }
 
 // =====================================================================
@@ -249,11 +491,12 @@ class RoundScene extends Phaser.Scene {
 
   create() {
     const { W, H, GROUND, WORLD } = CFG;
-    this.t = 0; this.done = false;
-    this.stats = { hitsDanger: 0, hitsBy: { fountain: 0, chandelier: 0, rain: 0, waltz: 0, dash: 0 }, shieldBlocks: 0, dashes: 0, attacks: 0, damage: 0, spins: 0, kills: 0, missions: {} };
+    this.t = 0; this.done = false; this.freeze = 0;
+    this.stats = { hitsDanger: 0, hitsBy: { fountain: 0, chandelier: 0, rain: 0, waltz: 0, dash: 0 }, shieldBlocks: 0, damage: 0, kills: 0, downs: 0, missions: {} };
     this.schedule = makeSchedule(); this.next = 0; this.hazards = [];
     this.waveIdx = 0; this.enemies = []; this.boss = null;
     this.missionIdx = -1; this.mission = null; this.servantKills = 0;
+    this.hp = 100; this.downT = 0;
 
     // 레이어 규칙: B안 = 위험 예고 > 내 캐릭터 > 적 > 아군 이펙트 / A안 = 아군 이펙트가 맨 위
     this.D = this.B
@@ -270,40 +513,49 @@ class RoundScene extends Phaser.Scene {
       { key: 'singer', off: -210, color: 0x4a8ff0, skill: 'notes' },
       { key: 'knight', off: 130, color: 0x8ab4d6, skill: 'shield' },
     ];
-    this.allies = party.map((a, i) => ({ ...a, sprite: this.add.image(260 + a.off, GROUND - 35, a.key).setScale(1.2).setDepth(this.D.ally), cd: 0.3 + i * 0.25, bob: Math.random() * 6 }));
+    this.allies = party.map((a, i) => ({ ...a, sprite: this.add.image(300 + a.off, GROUND - 35, a.key).setScale(1.2).setDepth(this.D.ally), cd: 0.3 + i * 0.25, bob: Math.random() * 6 }));
     this.allyPalette = this.B ? party.map(a => a.color) : [0x6f62e8, 0x1fb3a5, 0xe0a21c, 0x4a8ff0, 0xff2d55, 0xff4f9a, 0xff6a3d, 0xff3fbf];
     this.allyAlpha = this.B ? 0.32 : 0.95;
 
-    this.me = this.add.image(300, GROUND - 35, 'me').setScale(1.2).setDepth(this.D.me);
-    this.vy = 0; this.onGround = true; this.face = 1;
-    this.invuln = 0; this.dashT = 0; this.dashCd = 0; this.atkCd = 0; this.combo = 0; this.comboT = 0; this.spinCd = 0; this.shield = 0;
+    this.hero = new Hero(this, 300, this.D.me); this.me = this.hero.sp;
     if (this.B) {
       this.marker = this.add.ellipse(0, GROUND + 4, 56, 14).setStrokeStyle(3, 0x39ff88, 1).setDepth(this.D.me - 1);
       this.markerArrow = this.add.triangle(0, 0, 0, 0, 16, 0, 8, 12, 0x39ff88).setDepth(this.D.me + 1);
       this.outline = this.add.image(0, 0, 'meShape').setTint(0x39ff88).setScale(1.42).setAlpha(0.9).setDepth(this.D.me - 0.5);
     }
+    this.shield = 0;
     this.shieldFx = this.add.circle(0, 0, 38).setStrokeStyle(4, 0xffe9a8, 1).setFillStyle(0xffe9a8, 0.18).setVisible(false)
       .setDepth(this.B ? this.D.me + 2 : this.D.allyFx - 1);
 
-    // UI (화면 고정)
+    // ---- UI ----
     const ui = (o) => o.setScrollFactor(0).setDepth(this.D.ui);
-    ui(this.add.rectangle(0, 0, W, 64, 0xffffff, 0.8).setOrigin(0)).setDepth(this.D.ui - 1);
-    ui(this.add.text(16, 8, `라운드 ${this.index + 1} / 2`, { fontFamily: FONT, fontSize: 17, color: '#2a2350', fontStyle: 'bold' }));
+    ui(this.add.rectangle(0, 0, W, 58, 0xffffff, 0.85).setOrigin(0)).setDepth(this.D.ui - 1);
+    ui(this.add.text(16, 8, `라운드 ${this.index + 1} / 2`, { fontFamily: FONT, fontSize: 15, color: '#8f86ff', fontStyle: 'bold' }));
+    this.hpUI = makeHpBar(this, 16, 30, true);
     this.timerText = ui(this.add.text(W - 16, 8, '', { fontFamily: FONT, fontSize: 17, color: '#2a2350', fontStyle: 'bold' }).setOrigin(1, 0));
-    this.hitText = ui(this.add.text(16, 32, '', { fontFamily: FONT, fontSize: 14, color: '#5b4bc4', fontStyle: 'bold' }));
-    this.dmgText = ui(this.add.text(W - 16, 32, '', { fontFamily: FONT, fontSize: 14, color: '#5b4bc4', fontStyle: 'bold' }).setOrigin(1, 0));
-    this.missionText = ui(this.add.text(W / 2, 8, '', { fontFamily: FONT, fontSize: 16, color: '#2a2350', fontStyle: 'bold', align: 'center' }).setOrigin(0.5, 0));
-    this.spinIcon = ui(this.add.text(W / 2, 36, '', { fontFamily: FONT, fontSize: 13, color: '#6a59c4' }).setOrigin(0.5, 0));
-    this.bossBarBg = ui(this.add.rectangle(W / 2 - 160, 84, 320, 12, 0xd9cff7).setOrigin(0, 0.5)).setVisible(false);
-    this.bossBar = ui(this.add.rectangle(W / 2 - 160, 84, 320, 12, 0x6a3fb5).setOrigin(0, 0.5)).setVisible(false);
-    this.bossName = ui(this.add.text(W / 2, 92, '마스케라', { fontFamily: FONT, fontSize: 13, color: '#ffffff', stroke: '#2a2350', strokeThickness: 3 }).setOrigin(0.5, 0)).setVisible(false);
-    if (LOG.debug) ui(this.add.text(W / 2, 110, `debug: ${this.mode}안`, { fontFamily: FONT, fontSize: 13, color: '#666' }).setOrigin(0.5, 0));
+    this.hitText = ui(this.add.text(W - 16, 32, '', { fontFamily: FONT, fontSize: 13, color: '#5b4bc4', fontStyle: 'bold' }).setOrigin(1, 0));
+    this.spinIcon = ui(this.add.text(300, 30, '', { fontFamily: FONT, fontSize: 13, color: '#6a59c4', fontStyle: 'bold' }));
+    // 미션 판
+    this.mPanel = ui(this.add.container(W / 2, 6));
+    const mg = this.add.graphics(); mg.fillStyle(0x6a3fb5, 1); mg.fillRoundedRect(-190, 0, 380, 48, 12);
+    this.mTitle = this.add.text(0, 6, '', { fontFamily: FONT, fontSize: 15, fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5, 0);
+    this.mProg = this.add.text(0, 27, '', { fontFamily: FONT, fontSize: 13, color: '#ffe9a8', fontStyle: 'bold' }).setOrigin(0.5, 0);
+    this.mPanel.add([mg, this.mTitle, this.mProg]);
+    this.mDots = MISSIONS.map((m, i) => ui(this.add.text(W / 2 - 40 + i * 40, 60, '○', { fontFamily: FONT, fontSize: 16, color: '#6a3fb5', fontStyle: 'bold' }).setOrigin(0.5, 0)));
+    // 보스 체력
+    this.bossBarBg = ui(this.add.rectangle(W / 2 - 160, 96, 320, 12, 0xd9cff7).setOrigin(0, 0.5)).setVisible(false);
+    this.bossBar = ui(this.add.rectangle(W / 2 - 160, 96, 320, 12, 0x6a3fb5).setOrigin(0, 0.5)).setVisible(false);
+    this.bossName = ui(this.add.text(W / 2, 104, '마스케라', { fontFamily: FONT, fontSize: 13, color: '#ffffff', stroke: '#2a2350', strokeThickness: 3 }).setOrigin(0.5, 0)).setVisible(false);
+    if (LOG.debug) ui(this.add.text(8, H - 20, `debug: ${this.mode}안`, { fontFamily: FONT, fontSize: 12, color: '#666' }));
 
+    // ---- 시작 전: 두 안 모두 똑같이 "이게 나예요" 안내 ----
     this.ready = false;
-    const cd = ui(this.add.text(W / 2, H / 2 - 40, '3', { fontFamily: FONT, fontSize: 64, fontStyle: 'bold', color: '#2a2350' }).setOrigin(0.5));
+    const tag = this.add.text(this.me.x, this.me.y - 82, '나', { fontFamily: FONT, fontSize: 18, fontStyle: 'bold', color: '#ffffff', backgroundColor: '#e0a21c', padding: { x: 10, y: 4 } }).setOrigin(0.5).setDepth(this.D.ui);
+    const ring = this.add.circle(this.me.x, this.me.y, 50, 0xffffff, 0).setStrokeStyle(4, 0xffc94a).setDepth(this.D.ui);
+    this.tweens.add({ targets: ring, scale: 1.2, duration: 400, yoyo: true, repeat: -1 });
+    const cd = ui(this.add.text(W / 2, H / 2 - 60, '3', { fontFamily: FONT, fontSize: 64, fontStyle: 'bold', color: '#ffffff', stroke: '#6a3fb5', strokeThickness: 8 }).setOrigin(0.5));
     let n = 3;
-    this.time.addEvent({ delay: 700, repeat: 3, callback: () => { n--; if (n > 0) cd.setText(String(n)); else if (n === 0) cd.setText('시작!'); else { cd.destroy(); this.ready = true; } } });
-    this.keys = this.input.keyboard.addKeys('LEFT,RIGHT,UP,SPACE,X,Z,C');
+    this.time.addEvent({ delay: 700, repeat: 3, callback: () => { n--; if (n > 0) cd.setText(String(n)); else if (n === 0) cd.setText('시작!'); else { cd.destroy(); tag.destroy(); ring.destroy(); this.ready = true; } } });
     LOG.send('pp_round_start', { round: this.index + 1, mode: this.mode });
   }
 
@@ -358,41 +610,52 @@ class RoundScene extends Phaser.Scene {
       const x = this.cam.scrollX + CFG.W + 40 + i * 90;
       const sp = this.add.image(x, GROUND + def.y, def.tex).setDepth(this.D.enemy);
       if (w.type !== 'boss') sp.setScale(w.type === 'doll' ? 1.15 : 1.2);
-      const e = { type: w.type, sp, hp: def.hp, max: def.hp, bob: Math.random() * 6, stop: 380 + i * 90 + (w.type === 'boss' ? 120 : 0) };
-      if (w.type === 'boss') { this.boss = e; this.bossBarBg.setVisible(true); this.bossBar.setVisible(true); this.bossName.setVisible(true); }
-      else { e.bar = this.add.rectangle(x, sp.y - 46, 40, 5, 0xff9fd0).setDepth(this.D.enemy + 1); }
+      const e = { type: w.type, sp, hp: def.hp, max: def.hp, bob: Math.random() * 6, stop: 380 + i * 90 + (w.type === 'boss' ? 120 : 0), kb: 0 };
+      if (w.type === 'boss') { this.boss = e; this.bossBarBg.setVisible(true); this.bossBar.setVisible(true); this.bossName.setVisible(true); this.banner('보스 등장!', '#ffffff', 0x6a3fb5); }
+      else { e.barBg = this.add.rectangle(x, sp.y - 46, 42, 6, 0x2a2350, 0.5).setDepth(this.D.enemy + 1); e.bar = this.add.rectangle(x - 21, sp.y - 46, 42, 6, 0xff6a9a).setOrigin(0, 0.5).setDepth(this.D.enemy + 1); }
       this.enemies.push(e);
     }
   }
-  nearestEnemy(x) {
-    let best = null, d = 1e9;
-    for (const e of this.enemies) { const dd = Math.abs(e.sp.x - x); if (dd < d) { d = dd; best = e; } }
-    return best;
-  }
-  hurt(e, amount, byMe) {
+  nearestEnemy(x) { let best = null, d = 1e9; for (const e of this.enemies) { const dd = Math.abs(e.sp.x - x); if (dd < d) { d = dd; best = e; } } return best; }
+  hurt(e, amount, byMe, big) {
     if (!e || e.dead) return;
     e.hp -= amount; e.sp.setTint(0xffffff); e.flash = 0.08;
     if (byMe) {
       this.stats.damage += amount;
-      const t = this.add.text(e.sp.x + Phaser.Math.Between(-20, 20), e.sp.y - 40, String(amount), { fontFamily: FONT, fontSize: 22, fontStyle: 'bold', color: '#ffc94a', stroke: '#2a2350', strokeThickness: 4 }).setOrigin(0.5).setDepth(this.D.ui - 2);
-      this.tweens.add({ targets: t, y: t.y - 50, alpha: 0, duration: 600, onComplete: () => t.destroy() });
+      hitBurst(this, e.sp.x, e.sp.y - (e.type === 'boss' ? 40 : 10), amount, big, this.D.ui - 2);
+      e.kb = (e.sp.x > this.me.x ? 1 : -1) * (big ? 26 : 12);
+      this.freeze = big ? 0.07 : 0.035;
+      big ? SFX.big() : SFX.hit(this.hero.combo);
+      if (big) this.cam.shake(90, 0.004);
     }
     if (e.type === 'boss') this.bossBar.width = 320 * Math.max(0, e.hp) / e.max;
-    else if (e.bar) e.bar.width = 40 * Math.max(0, e.hp) / e.max;
+    else if (e.bar) e.bar.width = 42 * Math.max(0, e.hp) / e.max;
     if (e.hp <= 0) {
-      if (e.type === 'boss') { e.hp = e.max; this.bossBar.width = 320; this.stats.bossBreaks = (this.stats.bossBreaks || 0) + 1; this.popText(e.sp.x, e.sp.y - 120, '가면 교체!'); return; }
-      e.dead = true; this.stats.kills++;
-      if (e.type === 'servant') this.servantKills++;
-      for (let i = 0; i < 10; i++) {
-        const d = this.add.image(e.sp.x, e.sp.y, 'confetti').setTint(Phaser.Utils.Array.GetRandom([0xffc94a, 0x8f86ff, 0x3fd1c4])).setDepth(this.D.enemy + 2);
-        const ang = Math.random() * Math.PI * 2; this.tweens.add({ targets: d, x: d.x + Math.cos(ang) * 60, y: d.y + Math.sin(ang) * 60, alpha: 0, duration: 500, onComplete: () => d.destroy() });
+      if (e.type === 'boss') { e.hp = e.max; this.bossBar.width = 320; this.stats.bossBreaks = (this.stats.bossBreaks || 0) + 1; this.popWorld(e.sp.x, e.sp.y - 120, '가면 교체!'); return; }
+      e.dead = true; this.stats.kills++; SFX.kill();
+      if (e.type === 'servant') {
+        this.servantKills++;
+        if (this.mission && this.mission.id === 'm1' && this.mission.result == null) { const leftN = this.mission.goal - this.servantKills; if (leftN > 0) this.popWorld(e.sp.x, e.sp.y - 60, `하인 가면 ${leftN}개 남음`, '#ffe9a8'); }
       }
-      e.sp.destroy(); if (e.bar) e.bar.destroy();
+      for (let i = 0; i < 12; i++) {
+        const d = this.add.image(e.sp.x, e.sp.y, 'confetti').setTint(Phaser.Utils.Array.GetRandom([0xffc94a, 0x8f86ff, 0x3fd1c4])).setDepth(this.D.enemy + 2).setScale(1.4);
+        const ang = Math.random() * Math.PI * 2; this.tweens.add({ targets: d, x: d.x + Math.cos(ang) * 70, y: d.y + Math.sin(ang) * 70, angle: 360, alpha: 0, duration: 550, onComplete: () => d.destroy() });
+      }
+      this.tweens.add({ targets: e.sp, scale: 0, angle: 180, alpha: 0, duration: 220, onComplete: () => e.sp.destroy() });
+      if (e.bar) { e.bar.destroy(); e.barBg.destroy(); }
     }
   }
-  popText(x, y, msg, color = '#ffffff') {
-    const m = this.add.text(x, y, msg, { fontFamily: FONT, fontSize: 26, fontStyle: 'bold', color, stroke: '#6a3fb5', strokeThickness: 5 }).setOrigin(0.5).setDepth(this.D.ui - 2);
+  popWorld(x, y, msg, color = '#ffffff') {
+    const m = this.add.text(x, y, msg, { fontFamily: FONT, fontSize: 20, fontStyle: 'bold', color, stroke: '#6a3fb5', strokeThickness: 5 }).setOrigin(0.5).setDepth(this.D.ui - 2);
     this.tweens.add({ targets: m, y: y - 40, alpha: 0, duration: 1300, onComplete: () => m.destroy() });
+  }
+  banner(msg, color = '#ffffff', bgc = 0x6a3fb5, sub = '') {
+    const c = this.add.container(CFG.W / 2, 220).setScrollFactor(0).setDepth(this.D.ui + 5);
+    const g = this.add.graphics(); g.fillStyle(bgc, 0.92); g.fillRoundedRect(-200, -38, 400, sub ? 92 : 76, 18);
+    c.add(g); c.add(this.add.text(0, 0, msg, { fontFamily: FONT, fontSize: 32, fontStyle: 'bold', color }).setOrigin(0.5));
+    if (sub) c.add(this.add.text(0, 34, sub, { fontFamily: FONT, fontSize: 15, color: '#ffffff' }).setOrigin(0.5));
+    c.setScale(0.6); this.tweens.add({ targets: c, scale: 1, duration: 220, ease: 'Back.out' });
+    this.tweens.add({ targets: c, alpha: 0, delay: 1300, duration: 300, onComplete: () => c.destroy() });
   }
 
   // ---------- 아군 스킬: 가장 가까운 적을 노림 ----------
@@ -546,34 +809,19 @@ class RoundScene extends Phaser.Scene {
     return false;
   }
   takeHit(kind) {
-    if (this.invuln > 0 || this.dashT > 0) return;
-    if (this.shield > 0) { this.shield = 0; this.shieldFx.setVisible(false); this.stats.shieldBlocks++; this.invuln = 0.6; return; }
+    if (this.hero.invuln > 0 || this.hero.dashT > 0 || this.downT > 0) return;
+    if (this.shield > 0) { this.shield = 0; this.shieldFx.setVisible(false); this.stats.shieldBlocks++; this.hero.invuln = 0.6; this.popWorld(this.me.x, this.me.y - 70, '보호막!', '#ffe9a8'); return; }
     this.stats.hitsDanger++; this.stats.hitsBy[kind]++;
-    if (this.mission && this.mission.id === 'm2') this.mission.failed = true;
-    this.invuln = 0.9; this.cam.flash(120, 255, 60, 90);
-    this.vy = -260; this.onGround = false;
-  }
-
-  // ---------- 내 공격 ----------
-  attack() {
-    this.atkCd = 0.18; this.stats.attacks++;
-    this.combo = this.comboT > 0 ? (this.combo % 3) + 1 : 1; this.comboT = 0.5;
-    const dmg = [0, 30, 36, 60][this.combo];
-    const sl = this.add.image(this.me.x + this.face * 30, this.me.y - 4, 'slash').setTint(this.combo === 3 ? 0xffc94a : 0xffffff).setScale(this.combo === 3 ? 1.6 : 1.2).setDepth(this.D.me + 1);
-    sl.flipX = this.face < 0; sl.angle = this.combo === 2 ? -30 : 0;
-    this.tweens.add({ targets: sl, alpha: 0, x: sl.x + this.face * 20, duration: 160, onComplete: () => sl.destroy() });
-    if (this.combo === 3) this.me.x += this.face * 24;
-    for (const e of this.enemies) {
-      const dx = (e.sp.x - this.me.x) * this.face, reach = e.type === 'boss' ? 170 : 110;
-      if (dx > -30 && dx < reach) this.hurt(e, dmg, true);
+    if (this.mission && this.mission.id === 'm2' && !this.mission.failed) { this.mission.failed = true; this.endMission(this.mission, false); }
+    this.hp -= 20; this.hpUI.set(this.hp);
+    this.tweens.add({ targets: this.hpUI.c, x: 22, duration: 40, yoyo: true, repeat: 3, onComplete: () => this.hpUI.c.setX(16) });
+    SFX.hurt(); this.cam.flash(150, 255, 60, 90); this.cam.shake(140, 0.006);
+    this.popWorld(this.me.x, this.me.y - 60, '-20', '#ff6a7a');
+    this.hero.invuln = 0.9; this.hero.vy = -260; this.hero.onGround = false;
+    if (this.hp <= 0) {   // 다운: 2초 뒤 회복 (라운드는 계속)
+      this.stats.downs++; this.downT = 2; this.me.setAngle(90);
+      this.banner('다운!', '#ffffff', 0xd94a6a, '2초 뒤 다시 일어나요');
     }
-  }
-  spin() {
-    this.spinCd = 5; this.stats.spins++;
-    const ring = this.add.circle(this.me.x, this.me.y, 20, 0xffc94a, 0.25).setStrokeStyle(6, 0xffc94a, 1).setDepth(this.D.me + 1);
-    this.tweens.add({ targets: ring, radius: 170, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
-    this.tweens.add({ targets: this.me, angle: 360 * this.face, duration: 380, onComplete: () => this.me.setAngle(0) });
-    for (const e of this.enemies) if (Math.abs(e.sp.x - this.me.x) < (e.type === 'boss' ? 260 : 180)) this.hurt(e, e.type === 'boss' ? 150 : 120, true);
   }
 
   // ---------- 미션 ----------
@@ -583,70 +831,65 @@ class RoundScene extends Phaser.Scene {
     if (cur !== this.missionIdx) {
       if (this.mission && this.mission.result == null) this.endMission(this.mission, this.missionOk(this.mission));
       this.missionIdx = cur; this.mission = cur >= 0 ? { ...MISSIONS[cur], result: null, failed: false } : null;
-      if (this.mission) { this.popTextUI('미션 시작!'); if (this.mission.id === 'm3' && this.boss) this.mission.startHp = this.boss.hp; }
+      if (this.mission) { this.banner(`미션 ${cur + 1}`, '#ffffff', 0x6a3fb5, this.mission.text); this.mDots[cur].setText('●').setColor('#ffc94a'); }
     }
     const m = this.mission;
-    if (!m) { this.missionText.setText(''); return; }
+    if (!m) { this.mTitle.setText('다음 미션 준비 중'); this.mProg.setText(''); return; }
     if (m.id === 'm3' && m.startHp == null && this.boss) m.startHp = this.boss.hp;
+    this.mTitle.setText(`미션 ${this.missionIdx + 1}. ${m.text}`);
     let prog = '';
-    if (m.id === 'm1') prog = ` (${Math.min(this.servantKills, m.goal)}/${m.goal})`;
-    if (m.id === 'm2') prog = m.failed ? ' (실패)' : ` (${Math.max(0, Math.ceil(m.to - t))}초)`;
-    if (m.id === 'm3' && this.boss) prog = ` (${Math.round(this.m3Progress() * 100)}%)`;
-    this.missionText.setText((m.result === true ? '✔ ' : m.result === false ? '✖ ' : '미션: ') + m.text + (m.result == null ? prog : ''));
-    if (m.result == null && this.missionOk(m) && m.id !== 'm2') this.endMission(m, true);
+    if (m.result === true) prog = '✔ 성공!';
+    else if (m.result === false) prog = '✖ 실패';
+    else if (m.id === 'm1') prog = `남은 하인 가면 ${Math.max(0, m.goal - this.servantKills)}개  (${Math.min(this.servantKills, m.goal)}/${m.goal})`;
+    else if (m.id === 'm2') prog = `버티기 ${Math.max(0, Math.ceil(m.to - t))}초 남음`;
+    else if (m.id === 'm3') prog = this.boss ? `보스 체력 깎은 정도 ${Math.round(this.m3Progress() * 100)}% / 100%` : '보스를 기다리는 중';
+    this.mProg.setText(prog);
+    if (m.result == null && m.id !== 'm2' && this.missionOk(m)) this.endMission(m, true);
   }
   m3Progress() { const b = this.boss; if (!b) return 0; const dealt = (this.stats.bossBreaks || 0) * b.max + (b.max - b.hp); return Math.min(1, dealt / (b.max * 0.5)); }
-  missionOk(m) {
-    if (m.id === 'm1') return this.servantKills >= m.goal;
-    if (m.id === 'm2') return !m.failed;
-    if (m.id === 'm3') return this.m3Progress() >= 1;
-    return false;
-  }
+  missionOk(m) { if (m.id === 'm1') return this.servantKills >= m.goal; if (m.id === 'm2') return !m.failed; if (m.id === 'm3') return this.m3Progress() >= 1; return false; }
   endMission(m, ok) {
     if (m.result != null) return;
     m.result = ok; this.stats.missions[m.id] = ok ? 1 : 0;
-    this.popTextUI(ok ? '미션 성공!' : '미션 실패', ok ? '#ffc94a' : '#ff9fb4');
-  }
-  popTextUI(msg, color = '#ffffff') {
-    const m = this.add.text(CFG.W / 2, 160, msg, { fontFamily: FONT, fontSize: 30, fontStyle: 'bold', color, stroke: '#6a3fb5', strokeThickness: 6 }).setOrigin(0.5).setScrollFactor(0).setDepth(this.D.ui);
-    this.tweens.add({ targets: m, y: 130, alpha: 0, duration: 1400, onComplete: () => m.destroy() });
+    const i = MISSIONS.findIndex(x => x.id === m.id);
+    this.mDots[i].setText(ok ? '✔' : '✖').setColor(ok ? '#1fa36b' : '#d94a6a');
+    if (ok) { SFX.clear(); this.banner('MISSION CLEAR!', '#ffe14f', 0x6a3fb5, m.text); }
+    else { SFX.fail(); this.banner('미션 실패', '#ffffff', 0x8a7fa8, m.text); }
   }
 
-  update(time, deltaMs) {
-    const dt = Math.min(deltaMs / 1000, 0.05);
+  update(time, ms) {
+    let dt = Math.min(ms / 1000, 0.05);
     const { GROUND, WORLD, W } = CFG;
     if (!this.ready || this.done) return;
+    if (this.freeze > 0) { this.freeze -= dt; return; }   // 타격 순간 아주 잠깐 멈춤 (손맛)
     this.t += dt;
     const left = CFG.ROUND_SEC - this.t;
     this.timerText.setText(`남은 시간 ${Math.max(0, Math.ceil(left))}초`);
-    this.hitText.setText(`위험 공격에 맞은 횟수: ${this.stats.hitsDanger}`);
-    this.dmgText.setText(`내가 준 피해: ${this.stats.damage}`);
-    this.spinIcon.setText(this.spinCd > 0 ? `회전 베기 ${Math.ceil(this.spinCd)}초` : '회전 베기 준비 (C)');
+    this.hitText.setText(`맞은 횟수 ${this.stats.hitsDanger}  ·  준 피해 ${this.stats.damage}`.replace('  ·  ', '   '));
+    this.spinIcon.setText(this.hero.spinCd > 0 ? `회전 베기(C) ${Math.ceil(this.hero.spinCd)}초` : '회전 베기(C) 준비!');
     if (left <= 0) { if (this.mission && this.mission.result == null) this.endMission(this.mission, this.missionOk(this.mission)); return this.finish(); }
 
-    // 화면이 정해진 속도로 오른쪽으로 흐름 (모든 참여자가 같은 시간에 같은 구역을 봄)
     this.cam.scrollX = Math.min(this.t * CFG.SCROLL, WORLD - W);
     const left0 = this.cam.scrollX;
-
     while (this.next < this.schedule.length && this.schedule[this.next].t <= this.t) this.spawn(this.schedule[this.next++]);
     while (this.waveIdx < WAVES.length && WAVES[this.waveIdx].t <= this.t) this.spawnWave(WAVES[this.waveIdx++]);
     this.updateMission();
 
-    // 적: 화면 오른쪽에서 들어와 자리를 잡고 흔들림
     for (const e of this.enemies) {
       if (e.flash > 0) { e.flash -= dt; if (e.flash <= 0) e.sp.clearTint(); }
+      if (e.dead) continue;
       const busy = e.type === 'boss' && this.hazards.some(h => h.type === 'dash' && h.active > 0);
       if (busy) continue;
+      if (e.kb) { e.sp.x += e.kb; e.stop += e.kb; e.kb = 0; e.stop = Phaser.Math.Clamp(e.stop, 200, 900); }
       const tx = left0 + e.stop + (e.type === 'boss' ? 0 : Math.sin(this.t * 1.5 + e.bob) * 30);
       e.sp.x += (tx - e.sp.x) * Math.min(1, dt * 1.5);
       e.bob += dt;
       if (e.type === 'boss') e.sp.y = GROUND - 165 + Math.sin(e.bob * 2.5) * 8;
-      else { e.sp.y = GROUND + ENEMY[e.type].y - Math.abs(Math.sin(e.bob * 5)) * 5; e.bar.setPosition(e.sp.x, e.sp.y - (e.type === 'doll' ? 56 : 44)); }
+      else { e.sp.y = GROUND + ENEMY[e.type].y - Math.abs(Math.sin(e.bob * 5)) * 5; const by = e.sp.y - (e.type === 'doll' ? 56 : 44); e.barBg.setPosition(e.sp.x, by); e.bar.setPosition(e.sp.x - 21, by); }
       e.sp.flipX = e.sp.x > this.me.x;
     }
     this.enemies = this.enemies.filter(e => !e.dead);
 
-    // 파티원
     for (const a of this.allies) {
       const tx = Phaser.Math.Clamp(this.me.x + a.off, left0 + 20, left0 + W - 20);
       a.sprite.x += (tx - a.sprite.x) * Math.min(1, dt * 2.2);
@@ -656,23 +899,14 @@ class RoundScene extends Phaser.Scene {
     }
 
     // 나
-    const k = this.keys;
-    this.dashCd -= dt; this.atkCd -= dt; this.invuln -= dt; this.comboT -= dt; this.spinCd -= dt;
-    if (this.dashT > 0) { this.dashT -= dt; this.me.x += this.face * 640 * dt; }
-    else {
-      let mv = 0; if (k.LEFT.isDown) mv -= 1; if (k.RIGHT.isDown) mv += 1;
-      if (mv) this.face = mv;
-      this.me.x += mv * 280 * dt;
-      if ((Phaser.Input.Keyboard.JustDown(k.UP) || Phaser.Input.Keyboard.JustDown(k.SPACE)) && this.onGround) { this.vy = -580; this.onGround = false; }
-      if (Phaser.Input.Keyboard.JustDown(k.X) && this.dashCd <= 0) { this.dashT = 0.22; this.dashCd = 0.8; this.stats.dashes++; }
-      if (Phaser.Input.Keyboard.JustDown(k.Z) && this.atkCd <= 0) this.attack();
-      if (Phaser.Input.Keyboard.JustDown(k.C) && this.spinCd <= 0) this.spin();
+    if (this.downT > 0) {
+      this.downT -= dt; this.me.x = Phaser.Math.Clamp(this.me.x, left0 + 24, left0 + W - 40);
+      if (this.downT <= 0) { this.hp = 100; this.hpUI.set(100); this.me.setAngle(0); this.hero.invuln = 1.2; this.popWorld(this.me.x, this.me.y - 70, '회복!', '#3fd18a'); }
+    } else {
+      this.hero.update(dt, left0 + 24, left0 + W - 40,
+        (dmg, combo, face) => { for (const e of this.enemies) { const dx = (e.sp.x - this.me.x) * face, reach = e.type === 'boss' ? 170 : 110; if (dx > -30 && dx < reach) this.hurt(e, dmg, true, combo === 3); } },
+        () => { for (const e of this.enemies) if (Math.abs(e.sp.x - this.me.x) < (e.type === 'boss' ? 260 : 180)) this.hurt(e, e.type === 'boss' ? 150 : 120, true, true); });
     }
-    this.vy += 1500 * dt; this.me.y += this.vy * dt;
-    if (this.me.y >= GROUND - 35) { this.me.y = GROUND - 35; this.vy = 0; this.onGround = true; }
-    this.me.x = Phaser.Math.Clamp(this.me.x, left0 + 24, left0 + W - 40);   // 화면 밖으로 나갈 수 없음
-    this.me.flipX = this.face < 0;
-    this.me.setAlpha(this.invuln > 0 ? (Math.floor(this.t * 20) % 2 ? 0.3 : 1) : 1);
     if (this.B) {
       this.marker.setPosition(this.me.x, GROUND + 4);
       this.markerArrow.setPosition(this.me.x, this.me.y - 58);
@@ -683,7 +917,7 @@ class RoundScene extends Phaser.Scene {
     for (const h of this.hazards) {
       if (!h.active) { h.t -= dt; if (h.t <= 0) this.fire(h); continue; }
       h.active -= dt;
-      if (!h.hitDone && this.checkHit(h) && this.invuln <= 0 && this.dashT <= 0) { h.hitDone = true; this.takeHit(h.type); }
+      if (!h.hitDone && this.checkHit(h) && this.hero.invuln <= 0 && this.hero.dashT <= 0 && this.downT <= 0) { h.hitDone = true; this.takeHit(h.type); }
       if (h.active <= 0) { h.dead = true; (Array.isArray(h.g) ? h.g : [h.g]).forEach(g => this.tweens.add({ targets: g, alpha: 0, duration: 150, onComplete: () => g.destroy() })); }
     }
     this.hazards = this.hazards.filter(h => !h.dead);
@@ -691,7 +925,7 @@ class RoundScene extends Phaser.Scene {
 
   finish() {
     this.done = true;
-    const r = { round: this.index + 1, mode: this.mode, patterns: this.next, ...this.stats };
+    const r = { round: this.index + 1, mode: this.mode, patterns: this.next, ...this.stats, attacks: this.hero.events.attacks, dashes: this.hero.events.dashes, spins: this.hero.events.spins };
     LOG.rounds.push(r);
     this.scene.start('Survey', { index: this.index, result: r });
   }
@@ -704,7 +938,7 @@ class SurveyScene extends Phaser.Scene {
   create() {
     const { W, H } = CFG;
     this.add.rectangle(W / 2, H / 2, W, H, 0x2a2350);
-    this.add.text(W / 2, 50, `라운드 ${this.index + 1} 끝!  맞은 횟수 ${this.result.hitsDanger}   준 피해 ${this.result.damage}   미션 ${Object.values(this.result.missions).reduce((a, b) => a + b, 0)}/3`, { fontFamily: FONT, fontSize: 22, color: '#ffc94a' }).setOrigin(0.5);
+    this.add.text(W / 2, 50, `라운드 ${this.index + 1} 끝!   맞은 횟수 ${this.result.hitsDanger}   준 피해 ${this.result.damage}   미션 성공 ${Object.values(this.result.missions).reduce((a, b) => a + b, 0)}/3`, { fontFamily: FONT, fontSize: 22, color: '#ffc94a' }).setOrigin(0.5);
     this.qs = [
       { q: 'Q1. 싸우는 동안 내 캐릭터가 어디 있는지 놓친 순간이 있었나요?', opts: ['1  없었다', '2  1~2번 있었다', '3  여러 번 있었다'], key: 'lostSelf' },
       { q: 'Q2. 피해야 하는 공격과 그냥 연출을 구분하기 쉬웠나요?', opts: ['1  매우 어려웠다', '2  어려웠다', '3  보통', '4  쉬웠다', '5  매우 쉬웠다'], key: 'clarity' },
@@ -731,7 +965,7 @@ class SurveyScene extends Phaser.Scene {
     this.step++;
     if (this.step < this.qs.length) return this.show();
     Object.assign(this.result, this.answers);
-    LOG.send('pp_round_end', this.result);
+    LOG.send('pp_round_end', this.result); SFX.ok();
     if (this.index === 0) this.scene.start('Round', { index: 1 });
     else this.scene.start('Final');
   }
@@ -765,7 +999,7 @@ class FinalScene extends Phaser.Scene {
 new Phaser.Game({
   type: Phaser.AUTO, parent: 'game', width: CFG.W, height: CFG.H, backgroundColor: '#2a2350',
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-  scene: [TitleScene, RoundScene, SurveyScene, FinalScene],
+  scene: [TitleScene, TutorialScene, RoundScene, SurveyScene, FinalScene],
 });
 </script>
 </body>
