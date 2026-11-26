@@ -24,7 +24,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-2.1',
+  version: 'PP-2.2',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycbzRPIcB805fQv0X2EKGOGoE0JdrMudX7-HEzIzF9UJhyEdXejciDMcgw_TlgoGMNreUQg/exec',
@@ -213,6 +213,16 @@ function makeTextures(scene) {
   g.fillStyle(0xd94a6a, 1); g.fillCircle(31, 52, 7); g.fillStyle(0xffffff, 1); g.fillCircle(31, 52, 3);
   g.generateTexture('dummy', 62, 86);
   g.clear(); g.fillStyle(0xffffff, 1); g.fillTriangle(6, 0, 8, 6, 4, 6); g.fillTriangle(0, 6, 6, 4, 6, 8); g.fillTriangle(12, 6, 6, 4, 6, 8); g.fillTriangle(6, 12, 8, 6, 4, 6); g.generateTexture('spark', 12, 12);
+  // 보호막: 육각형 방패 (공격 이펙트에는 쓰지 않는 모양)
+  g.clear();
+  const hex = (r) => { const pts = []; for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; pts.push({ x: 50 + Math.cos(a) * r, y: 50 + Math.sin(a) * r }); } return pts; };
+  g.fillStyle(0xfff6c8, 0.22); g.fillPoints(hex(46), true);
+  g.lineStyle(4, 0xffe066, 1); g.strokePoints(hex(46), true);
+  g.lineStyle(2, 0xffffff, 0.9); g.strokePoints(hex(38), true);
+  g.generateTexture('shieldHex', 100, 100);
+  // 방패 아이콘
+  g.clear(); g.fillStyle(0xffe066, 1); g.fillRoundedRect(2, 0, 20, 14, 3); g.fillTriangle(2, 12, 22, 12, 12, 26); g.fillStyle(0xffffff, 1); g.fillRect(10, 4, 4, 12); g.fillRect(6, 8, 12, 4);
+  g.generateTexture('shieldIcon', 24, 26);
   g.clear(); g.fillStyle(0xffffff, 1); g.fillCircle(8, 8, 8); g.generateTexture('dot', 16, 16);
   g.clear(); g.fillStyle(0xffffff, 1); g.fillRoundedRect(0, 0, 12, 16, 2); g.generateTexture('card', 12, 16);
   g.clear(); g.fillStyle(0xffffff, 1); g.fillRect(0, 0, 8, 5); g.generateTexture('confetti', 8, 5);
@@ -398,7 +408,7 @@ class TutorialScene extends Phaser.Scene {
       { title: '허수아비에게 3연속 베기', sub: 'Z를 빠르게 3번 누르면 마지막 일격이 강해져요.', keys: [['Z'], ['Z'], ['Z']], check: () => this.combo3Hit },
       { title: '회전 베기', sub: '주변을 크게 베는 필살기. 5초마다 쓸 수 있어요.', keys: [['C']], check: () => this.spinHit },
       { title: '바닥 표시를 피해 보세요 (3번)', sub: '공격 전에는 표시가 나타나요. 맞으면 체력이 줄어요.', keys: [['←'], ['→'], ['X']], check: () => this.dodged >= 3 },
-      { title: '준비 완료!', sub: '이제 진짜 파티예요. 파티원 5명이 함께 싸우니까 화면이 훨씬 정신없을 거예요.', keys: [['Enter', 70]], check: () => this.enter },
+      { title: '준비 완료!', sub: '노란 육각형 방패는 기사가 준 보호막이에요. 공격을 1번 막아 줘요.', keys: [['Enter', 70]], check: () => this.enter },
     ];
     this.steps.forEach((_, i) => { const d = this.add.circle(W / 2 - (this.steps.length - 1) * 9 + i * 18, 176, 5, 0xd9cff7).setDepth(100); this.dots.push(d); });
     this.input.keyboard.on('keydown-ENTER', () => { this.enter = true; });
@@ -521,8 +531,12 @@ class RoundScene extends Phaser.Scene {
 
     this.hero = new Hero(this, 300, this.D.me); this.me = this.hero.sp;
     this.shield = 0;
-    this.shieldFx = this.add.circle(0, 0, 38).setStrokeStyle(4, 0xffe9a8, 1).setFillStyle(0xffe9a8, 0.18).setVisible(false)
-      .setDepth(this.D.allyFx - 1);
+    this.shieldFx = this.add.image(0, 0, 'shieldHex').setScale(0.95).setVisible(false).setDepth(this.D.allyFx - 1);
+    // 화면 왼쪽 위: 보호막이 켜져 있으면 아이콘과 남은 시간 표시
+    this.shieldHud = this.add.container(16, 68).setScrollFactor(0).setDepth(this.D.ui).setVisible(false);
+    this.shieldHud.add(this.add.image(12, 10, 'shieldIcon'));
+    this.shieldHudText = this.add.text(30, 2, '', { fontFamily: FONT, fontSize: 14, fontStyle: 'bold', color: '#b8860b', backgroundColor: '#fff6c8', padding: { x: 6, y: 2 } });
+    this.shieldHud.add(this.shieldHudText);
 
     // ---- UI ----
     const ui = (o) => o.setScrollFactor(0).setDepth(this.D.ui);
@@ -704,7 +718,7 @@ class RoundScene extends Phaser.Scene {
     } else if (a.skill === 'shield') {
       const b = this.add.rectangle(a.sprite.x, a.sprite.y, 30, 70, col, al * 0.6).setDepth(D);
       this.tweens.add({ targets: b, x: bx, scaleX: 3, alpha: 0, duration: 500, onComplete: () => b.destroy() });
-      if (this.shield <= 0 && Math.random() < 0.35) { this.shield = 4; this.shieldFx.setVisible(true); }   // 중요한 아군 이펙트: B안에서도 선명
+      if (this.shield <= 0 && Math.random() < 0.35) this.giveShield(a);
     }
     if (target && Math.abs(target.sp.x - a.sprite.x) < 520) this.hurt(target, target.type === 'boss' ? 2 : 3, false);
   }
@@ -849,7 +863,13 @@ class RoundScene extends Phaser.Scene {
 
   takeHit(kind) {
     if (this.hero.invuln > 0 || this.hero.dashT > 0 || this.downT > 0) return;
-    if (this.shield > 0) { this.shield = 0; this.shieldFx.setVisible(false); this.stats.shieldBlocks++; this.hero.invuln = 0.6; this.popWorld(this.me.x, this.me.y - 70, '보호막!', '#ffe9a8'); return; }
+    if (this.shield > 0) {
+      this.shield = 0; this.stats.shieldBlocks++; this.hero.invuln = 0.6; this.shieldHud.setVisible(false);
+      this.tweens.add({ targets: this.shieldFx, scale: 1.5, alpha: 0, duration: 250, onComplete: () => this.shieldFx.setVisible(false).setAlpha(1) });
+      this.popWorld(this.me.x, this.me.y - 80, '보호막이 막아 줬어요!', '#ffe066'); SFX.tone(1200, 0.1, 'triangle', 0.05);
+      this.streak = Math.max(0, this.streak);   // 보호막으로 막은 건 연속 회피를 끊지 않음
+      return;
+    }
     this.stats.hitsDanger++; this.stats.hitsBy[kind]++;
     if (this.mission && this.mission.id === 'm2' && this.mission.active && this.mission.result == null && !this.mission.failed) { this.mission.failed = true; this.endMission(this.mission, false); }
     if (this.streak >= 3) this.popWorld(this.me.x, this.me.y - 100, `연속 회피 ${this.streak} 끊김`, '#ff9fb4');
@@ -970,6 +990,15 @@ class RoundScene extends Phaser.Scene {
     rk.setScale(2.2); this.tweens.add({ targets: rk, scale: 1, duration: 380, delay: 200, ease: 'Bounce.out' });
     SFX.ok();
   }
+  giveShield(from) {   // 기사가 나에게 보호막을 줌 (두 안 동일)
+    this.shield = 4; this.shieldFx.setVisible(true).setScale(0.3).setAlpha(1);
+    this.tweens.add({ targets: this.shieldFx, scale: 0.95, duration: 250, ease: 'Back.out' });
+    const fly = this.add.image(from.sprite.x, from.sprite.y - 30, 'shieldIcon').setScale(1.4).setDepth(this.D.ui - 3);
+    this.tweens.add({ targets: fly, x: this.me.x, y: this.me.y - 40, duration: 300, onComplete: () => fly.destroy() });
+    this.popWorld(this.me.x, this.me.y - 90, '보호막 받음! (1번 막아 줌)', '#ffe066');
+    SFX.tone(660, 0.12, 'triangle', 0.05); setTimeout(() => SFX.tone(990, 0.12, 'triangle', 0.05), 80);
+    this.shieldHud.setVisible(true);
+  }
   addScore(n, x, y, label) {
     this.score += n;
     if (x != null) this.popWorld(x, y, (n > 0 ? '+' : '') + n + (label ? ' ' + label : ''), n > 0 ? '#ffe14f' : '#ff6a7a');
@@ -1055,7 +1084,12 @@ class RoundScene extends Phaser.Scene {
         (dmg, combo, face) => { for (const e of this.enemies) { const dx = (e.sp.x - this.me.x) * face, reach = e.type === 'boss' ? 170 : 110; if (dx > -30 && dx < reach) this.hurt(e, dmg, true, combo === 3); } },
         () => { for (const e of this.enemies) if (Math.abs(e.sp.x - this.me.x) < (e.type === 'boss' ? 260 : 180)) this.hurt(e, e.type === 'boss' ? 150 : 120, true, true); });
     }
-    if (this.shield > 0) { this.shield -= dt; this.shieldFx.setPosition(this.me.x, this.me.y); if (this.shield <= 0) this.shieldFx.setVisible(false); }
+    if (this.shield > 0) {
+      this.shield -= dt; this.shieldFx.setPosition(this.me.x, this.me.y - 4).setAngle(this.shieldFx.angle + dt * 40);
+      this.shieldHudText.setText(`보호막 ${Math.ceil(this.shield)}초`);
+      if (this.shield < 1) this.shieldFx.setAlpha(Math.floor(this.t * 10) % 2 ? 0.3 : 1);
+      if (this.shield <= 0) { this.shieldFx.setVisible(false).setAlpha(1); this.shieldHud.setVisible(false); }
+    }
 
     for (const h of this.hazards) {
       if (!h.active) { h.t -= dt; if (h.t <= 0) this.fire(h); continue; }
