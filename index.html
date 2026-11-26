@@ -27,7 +27,7 @@ const CFG = {
   version: 'PP-2.4',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
-  endpoint: 'https://script.google.com/macros/s/AKfycbzRPIcB805fQv0X2EKGOGoE0JdrMudX7-HEzIzF9UJhyEdXejciDMcgw_TlgoGMNreUQg/exec',
+  endpoint: 'https://script.google.com/macros/s/AKfycby3ja5wDpWjQ40HdE1UE7VX6IZMUB3_ex9CVAidK79NR9KLm-HvedgIiQndZ8-KYGvuGg/exec',
   DANGER: 0xff2d55,
 };
 const FONT = 'Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
@@ -1172,7 +1172,7 @@ class FinalScene extends Phaser.Scene {
     this.add.rectangle(W / 2, H / 2, W, H, 0x2a2350);
     const [r1, r2] = LOG.rounds;
     this.add.text(W / 2, 60, '마지막 질문', { fontFamily: FONT, fontSize: 30, color: '#ffc94a' }).setOrigin(0.5);
-    this.add.text(W / 2, 120, `라운드 1: ${r1.dangerSeen}번 중 ${r1.hitsDanger}번 맞음    라운드 2: ${r2.dangerSeen}번 중 ${r2.hitsDanger}번 맞음`, { fontFamily: FONT, fontSize: 22, color: '#ffffff' }).setOrigin(0.5);
+    this.add.text(W / 2, 120, `라운드 1: ${r1.dangerSeen}번 중 ${r1.dangerSeen - r1.hitsDanger - r1.shieldBlocks}번 피함    라운드 2: ${r2.dangerSeen}번 중 ${r2.dangerSeen - r2.hitsDanger - r2.shieldBlocks}번 피함`, { fontFamily: FONT, fontSize: 22, color: '#ffffff' }).setOrigin(0.5);
     this.add.text(W / 2, 190, 'Q3. 어느 라운드가 더 플레이하기 편했나요?', { fontFamily: FONT, fontSize: 22, color: '#ffffff' }).setOrigin(0.5);
     const pick = (n) => {
       if (this.picked) return; this.picked = true;
