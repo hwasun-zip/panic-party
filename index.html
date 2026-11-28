@@ -24,7 +24,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-2.11',
+  version: 'PP-2.12',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycby3ja5wDpWjQ40HdE1UE7VX6IZMUB3_ex9CVAidK79NR9KLm-HvedgIiQndZ8-KYGvuGg/exec',
@@ -829,12 +829,12 @@ class RoundScene extends Phaser.Scene {
         this.tweens.add({ targets: c, y: GROUND - 10, duration: 220, delay: i * 20, onComplete: () => c.destroy() });
       } });
     } else if (h.type === 'waltz') {
-      h.active = 0.6;
+      h.active = 0.6; h.dur = 0.6;
       const startX = h.dir > 0 ? h.x0 : h.x1;
       const tw = this.add.image(startX, GROUND - 35, 'waltz').setTint(this.B ? CFG.DANGER : 0xffffff).setScale(1.4).setDepth(this.D.danger);
       this.tweens.add({ targets: tw, x: h.dir > 0 ? h.x1 : h.x0, angle: 720, duration: 600, onComplete: () => tw.destroy() });
     } else if (h.type === 'servant') {
-      h.active = 0.45;
+      h.active = 0.45; h.dur = 0.42;
       const m = this.add.image(h.from, CFG.GROUND - 26, 'servant').setScale(0.6).setTint(this.B ? CFG.DANGER : 0xffffff).setDepth(this.D.danger);
       this.tweens.add({ targets: m, x: h.dir > 0 ? h.x1 : h.x0, angle: 720 * h.dir, duration: 420, onComplete: () => m.destroy() });
     } else if (h.type === 'doll') {
@@ -853,9 +853,11 @@ class RoundScene extends Phaser.Scene {
     if (h.type === 'fountain') return Math.abs(me.x - h.x) < h.r && me.y > GROUND - 80;
     if (h.type === 'chandelier') return Math.abs(me.x - h.x) < h.w / 2 + 10;
     if (h.type === 'rain') return h.cols.some(cx => Math.abs(me.x - cx) < 58);
-    if (h.type === 'waltz') return me.x > h.x0 && me.x < h.x1 && me.y > GROUND - 70;
-    if (h.type === 'dash') return me.y > GROUND - 76;
-    if (h.type === 'servant') return me.x > h.x0 && me.x < h.x1 && me.y > GROUND - 66;
+    // 움직이는 공격은 회오리와 부메랑이 실제로 지나가는 순간에만 판정 (먼저 뛰었다 내려와도 지나가기 전이면 안 맞음)
+    const sweepX = (from, to) => from + (to - from) * Phaser.Math.Clamp(1 - Math.max(0, h.active) / h.dur, 0, 1);
+    if (h.type === 'waltz') { const x = sweepX(h.dir > 0 ? h.x0 : h.x1, h.dir > 0 ? h.x1 : h.x0); return Math.abs(me.x - x) < 48 && me.y > GROUND - 70; }
+    if (h.type === 'dash') return me.y > GROUND - 76 && (!this.boss || Math.abs(me.x - this.boss.sp.x) < 110);
+    if (h.type === 'servant') { const x = sweepX(h.from, h.dir > 0 ? h.x1 : h.x0); return Math.abs(me.x - x) < 40 && me.y > GROUND - 66; }
     if (h.type === 'doll') return me.x > h.x0 && me.x < h.x1;
     return false;
   }
