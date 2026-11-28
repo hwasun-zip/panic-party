@@ -24,7 +24,7 @@
 // - 모든 그래픽은 도형으로 직접 그린 오리지널입니다.
 // =====================================================================
 const CFG = {
-  version: 'PP-2.10',
+  version: 'PP-2.11',
   W: 960, H: 540, GROUND: 450, WORLD: 4100,
   ROUND_SEC: 75,
   endpoint: 'https://script.google.com/macros/s/AKfycby3ja5wDpWjQ40HdE1UE7VX6IZMUB3_ex9CVAidK79NR9KLm-HvedgIiQndZ8-KYGvuGg/exec',
@@ -64,7 +64,7 @@ const ZONES = [
     patterns: ['fountain', 'confetti', 'fountain', 'spotlight', 'fountain', 'confetti', 'fountain'], pStart: 2.2, pGap: 2.3,
     waves: [{ t: 0.5, type: 'servant', n: 3 }, { t: 4.5, type: 'servant', n: 3 }, { t: 9, type: 'servant', n: 3 }, { t: 13, type: 'servant', n: 2 }] },
   { name: '2구역 무도회장', x0: 1400, drift: 300, max: 14,
-    patterns: ['chandelier', 'confetti', 'rain', 'fountain', 'spotlight', 'chandelier', 'rain'], pStart: 2.4, pGap: 1.9,
+    patterns: ['chandelier+confetti', 'rain', 'waltz+spotlight', 'fountain', 'chandelier+waltz', 'rain+confetti', 'waltz', 'fountain+chandelier', 'waltz+spotlight'], pStart: 2.2, pGap: 1.45,
     waves: [] },   // 피하기 구간: 적 없이 패턴만 (파티원은 그대로)
   { name: '3구역 무대', x0: 2700, drift: 440, max: 40,
     patterns: ['waltz', 'chandelier', 'groggy', 'dash', 'rain', 'groggy', 'waltz', 'confetti', 'chandelier', 'groggy', 'dash', 'fountain', 'groggy', 'rain', 'waltz', 'groggy'], pStart: 2.2, pGap: 2.3,
@@ -1093,7 +1093,7 @@ class RoundScene extends Phaser.Scene {
     } else if (!this.zoneDone && this.ending <= 0) {
       this.zt += dt;
       this.cam.scrollX = Z.x0 + Z.drift * Math.min(1, this.zt / Z.max);
-      while (this.next < this.schedule.length && this.schedule[this.next].t <= this.zt) { const p = this.schedule[this.next++]; if (DANGER_TYPES.includes(p.type)) this.dangerSeen++; this.spawn(p); }
+      while (this.next < this.schedule.length && this.schedule[this.next].t <= this.zt) { const p = this.schedule[this.next++]; p.type.split('+').forEach((type, k) => { const q = { ...p, type, off: k ? -p.off - 90 : p.off }; if (DANGER_TYPES.includes(type)) this.dangerSeen++; this.spawn(q); }); }   // '+'는 두 패턴 동시 (조합)
       while (this.waveIdx < Z.waves.length && Z.waves[this.waveIdx].t <= this.zt) this.spawnWave(Z.waves[this.waveIdx++]);
       this.updateMission();
       const timeUp = this.zt >= Z.max;
